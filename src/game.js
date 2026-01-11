@@ -1,5 +1,5 @@
 /**
- * KONFIGURACE HRY - HORSE HOOF PONG (REALISTICKÁ FYZIKA DOPADU)
+ * KONFIGURACE HRY - HORSE HOOF PONG (COMBO UI UPDATE)
  */
 const config = {
     type: Phaser.AUTO,
@@ -93,6 +93,7 @@ class GameScene extends Phaser.Scene {
         this.totalShots = 0; this.totalHits = 0; this.currentRound = 1;
         this.shotsInRound = 0; this.hitsInRound = 0; this.canShoot = true;
         this.isConfirmingExit = false;
+        this.comboCount = 0; // NOVÉ: Počítadlo comba
 
         this.splashManager = this.add.particles(0, 0, 'splash_drop', {
             speed: { min: -150, max: 150 }, angle: { min: 220, max: 320 },
@@ -146,23 +147,16 @@ class GameScene extends Phaser.Scene {
             this.canShoot = false;
             this.shotsInRound++;
             this.totalShots++;
-            
-            // Fyzikální pohyb
             this.ball.setVelocity(dx, dy);
-
-            // Doba letu je závislá na síle hodu (dy)
-            // Čím silnější hod, tím déle trvá, než míček "dopadne" (scale se zmenší a pak zase zvětší)
             const flightDuration = Math.abs(dy) * 1.8;
 
             this.tweens.add({
                 targets: this.ball,
                 scale: 0.4,
                 duration: flightDuration / 2,
-                yoyo: true, // Míček se zmenší (letí dál) a pak mírně zvětší (dopadá)
+                yoyo: true,
                 ease: 'Quad.Out',
-                onComplete: () => {
-                    this.checkLanding();
-                }
+                onComplete: () => { this.checkLanding(); }
             });
         }
         this.swipeStart = null;
@@ -172,11 +166,13 @@ class GameScene extends Phaser.Scene {
         this.ball.setVelocity(0);
         let hitFound = false;
 
-        // Kontrola kolize v místě dopadu
         this.cups.children.entries.forEach(cup => {
             const dist = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y);
             if (dist < 25 && !hitFound) {
                 hitFound = true;
+                this.comboCount++; // Zvýšení comba
+                this.showComboText(cup.x, cup.y); // NOVÉ: Zobrazení HIT/DOUBLE/TRIPLE
+                
                 this.cameras.main.shake(150, 0.015);
                 this.splashManager.emitParticleAt(cup.x, cup.y, 20);
                 cup.destroy();
@@ -188,7 +184,7 @@ class GameScene extends Phaser.Scene {
         });
 
         if (!hitFound) {
-            // Pokud netrefil, míček se odrazí od stolu pryč
+            this.comboCount = 0; // Reset comba při minutí
             this.tweens.add({
                 targets: this.ball,
                 y: this.ball.y + 50,
@@ -199,6 +195,33 @@ class GameScene extends Phaser.Scene {
         } else {
             this.time.delayedCall(500, () => this.processTurn());
         }
+    }
+
+    // NOVÉ: Funkce pro animovaný HIT text
+    showComboText(x, y) {
+        let txt = "HIT!";
+        let color = "#ffffff";
+
+        if (this.comboCount === 2) { txt = "DOUBLE HIT!"; color = "#f1c40f"; }
+        else if (this.comboCount >= 3) { txt = "TRIPLE HIT!!!"; color = "#e67e22"; }
+
+        const floatingText = this.add.text(x, y - 20, txt, {
+            fontSize: '28px',
+            fill: color,
+            fontStyle: '900',
+            stroke: '#000',
+            strokeThickness: 4
+        }).setOrigin(0.5).setDepth(40);
+
+        this.tweens.add({
+            targets: floatingText,
+            y: y - 100,
+            alpha: 0,
+            scale: 1.5,
+            duration: 800,
+            ease: 'Back.out',
+            onComplete: () => floatingText.destroy()
+        });
     }
 
     update() {

@@ -1,6 +1,6 @@
 /**
- * HOOF PONG - REBALANCED SWIPE EDITION
- * Přirozená fyzika, vyladěná síla a přehledná trajektorie.
+ * HOOF PONG - DIRECT SWIPE CONTROL
+ * Směr hodu přesně následuje pohyb prstu po displeji.
  */
 const config = {
     type: Phaser.AUTO,
@@ -47,14 +47,11 @@ class GameScene extends Phaser.Scene {
         this.currentRound = 1; this.shotsInRound = 0; this.hitsInRound = 0;
         this.isFlying = false;
 
-        // --- TRAJEKTORIE (Tečky) ---
         this.dots = [];
         for (let i = 0; i < 12; i++) {
-            let d = this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10);
-            this.dots.push(d);
+            this.dots.push(this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10));
         }
 
-        // --- HERNÍ OBJEKTY ---
         this.cups = this.physics.add.staticGroup();
         this.spawnCups(10);
 
@@ -65,7 +62,7 @@ class GameScene extends Phaser.Scene {
         this.uiText = this.add.text(20, 20, '', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
         this.updateUI();
 
-        // --- OVLÁDÁNÍ SWIPE ---
+        // OVLÁDÁNÍ
         this.input.on('pointerdown', (p) => {
             if (this.isFlying) return;
             this.swipeStart = { x: p.x, y: p.y };
@@ -83,35 +80,34 @@ class GameScene extends Phaser.Scene {
     }
 
     updateTrajectory(p) {
-        const dx = this.swipeStart.x - p.x;
-        const dy = this.swipeStart.y - p.y;
+        // Změna: Teď počítáme směr PŘÍMO (kam jde prst, tam jdou tečky)
+        const dx = p.x - this.swipeStart.x;
+        const dy = p.y - this.swipeStart.y;
         const angle = Math.atan2(dy, dx);
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Omezení vizuální síly teček
-        const forceVisual = Math.min(dist, 250);
+        const forceVisual = Math.min(dist, 300);
         
         this.dots.forEach((dot, i) => {
-            // Tečky ukazují směr a odhadovanou sílu (zobrazeno cca 60% dráhy)
-            const step = (i / this.dots.length) * 0.6; 
+            const step = (i / this.dots.length) * 0.7; 
             const travelX = Math.cos(angle) * forceVisual * 4 * step;
             const travelY = Math.sin(angle) * forceVisual * 4 * step;
             
             dot.setPosition(this.ball.x + travelX, this.ball.y + travelY);
             dot.setAlpha(1 - (i / this.dots.length));
-            dot.setScale(1.2 - (i / this.dots.length));
         });
     }
 
     handleSwipeEnd(p) {
-        const dx = this.swipeStart.x - p.x;
-        const dy = this.swipeStart.y - p.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const dx = p.x - this.swipeStart.x;
+        const dy = p.y - this.swipeStart.y;
         const angle = Math.atan2(dy, dx);
+        const dist = Math.sqrt(dx * dx + dy * dy);
 
         this.dots.forEach(d => d.setAlpha(0));
 
-        if (dist > 20) {
+        // Musí to být swipe směrem "nahoru" (dy záporné)
+        if (dist > 30 && dy < 0) {
             this.shoot(angle, dist);
         }
         this.swipeStart = null;
@@ -121,15 +117,13 @@ class GameScene extends Phaser.Scene {
         this.isFlying = true;
         this.shotsInRound++;
 
-        // VYVÁŽENÁ SÍLA: 
-        // Násobič 3.2 zajišťuje, že normální švih dohodí ke kelímkům na konci stolu.
-        let speed = Math.min(Math.max(force * 3.2, 300), 950);
+        // Síla je nastavena tak, aby delší swipe znamenal delší dolet
+        let speed = Math.min(Math.max(force * 3.5, 300), 1000);
 
         this.ball.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
 
-        // Animace letu (výška)
         this.tweens.add({
-            targets: this.ball, scale: 0.4, duration: 700, yoyo: true, ease: 'Quad.Out',
+            targets: this.ball, scale: 0.4, duration: 750, yoyo: true, ease: 'Quad.Out',
             onComplete: () => { this.isFlying = false; this.checkLanding(); }
         });
     }
@@ -138,7 +132,6 @@ class GameScene extends Phaser.Scene {
         if (this.ball) {
             this.ballShadow.x = this.ball.x;
             this.ballShadow.y = this.ball.y + (this.isFlying ? 20 : 10);
-            
             if (this.shotsInRound === 2 && this.hitsInRound === 2) {
                 this.emitFire(!this.isFlying);
                 this.ball.setTint(0xffaa00);
@@ -149,15 +142,11 @@ class GameScene extends Phaser.Scene {
     checkLanding() {
         this.ball.setVelocity(0);
         let hitFound = false;
-        
         this.cups.children.entries.forEach(cup => {
-            let distance = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y);
-            if (distance < 28 && !hitFound) {
+            if (Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y) < 28 && !hitFound) {
                 hitFound = true; this.hitsInRound++;
-                let msg = (this.shotsInRound === 3) ? "TRIPLE FIRE!" : (this.hitsInRound === 2 ? "DOUBLE HIT!" : "HIT!");
-                this.popText(msg, cup.x, cup.y, '#f1c40f', 40);
-                cup.destroy(); 
-                this.updateFormations();
+                this.popText("HIT!", cup.x, cup.y, '#f1c40f', 40);
+                cup.destroy(); this.updateFormations();
             }
         });
 
@@ -169,14 +158,8 @@ class GameScene extends Phaser.Scene {
     }
 
     popText(txt, x, y, color, size = 32) {
-        const t = this.add.text(x, y, txt, { 
-            fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 6 
-        }).setOrigin(0.5).setDepth(100);
-        
-        this.tweens.add({
-            targets: t, y: y - 100, alpha: 0, scale: 1.5, duration: 800, 
-            onComplete: () => t.destroy() 
-        });
+        const t = this.add.text(x, y, txt, { fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5).setDepth(100);
+        this.tweens.add({ targets: t, y: y - 100, alpha: 0, scale: 1.5, duration: 800, onComplete: () => t.destroy() });
     }
 
     processTurn() {
@@ -199,10 +182,7 @@ class GameScene extends Phaser.Scene {
 
     spawnCups(count) {
         this.cups.clear(true, true);
-        const cx = this.scale.width / 2;
-        const sy = 80; // Kelímky jsou na horním konci stolu
-        const gap = 42;
-        
+        const cx = this.scale.width / 2, sy = 80, gap = 42;
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {

@@ -1,5 +1,5 @@
 /**
- * KONFIGURACE HRY - HORSE HOOF PONG (OPRAVA VRSTEV A KOLIZÍ)
+ * KONFIGURACE HRY - HORSE HOOF PONG (STATISTIKY & HISTORIE)
  */
 const config = {
     type: Phaser.AUTO,
@@ -20,21 +20,20 @@ const config = {
 
 class MenuScene extends Phaser.Scene {
     constructor() { super('MenuScene'); }
+    
     create() {
         const { width, height } = this.scale;
         let bg = this.add.graphics();
         bg.fillGradientStyle(0x1abc9c, 0x1abc9c, 0x16a085, 0x16a085, 1);
         bg.fillRect(0, 0, width, height);
 
-        this.add.text(width / 2, 180, 'HOOF PONG', { 
+        this.add.text(width / 2, 100, 'HOOF PONG', { 
             fontSize: '64px', fill: '#fff', align: 'center', fontStyle: '900', stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5);
 
-        const bestAcc = localStorage.getItem('hoofBestAcc') || '0';
-        this.add.text(width / 2, 250, `NEJLEPŠÍ ÚSPĚŠNOST: ${bestAcc}%`, { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
-
+        // Jméno hráče
         this.playerName = localStorage.getItem('hoofName') || 'Hráč';
-        const nameTxt = this.add.text(width / 2, 320, `👤 ${this.playerName}`, { 
+        const nameTxt = this.add.text(width / 2, 180, `👤 ${this.playerName}`, { 
             fontSize: '22px', fill: '#ffcc00', fontStyle: 'bold'
         }).setOrigin(0.5).setInteractive();
 
@@ -43,9 +42,43 @@ class MenuScene extends Phaser.Scene {
             if (n) { this.playerName = n; localStorage.setItem('hoofName', n); nameTxt.setText(`👤 ${n}`); }
         });
 
-        const playBtn = this.add.rectangle(width / 2, 450, 220, 70, 0x27ae60).setInteractive();
-        this.add.text(width / 2, 450, 'START HRY', { fontSize: '28px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+        // Tlačítko START
+        const playBtn = this.add.rectangle(width / 2, 280, 220, 60, 0x27ae60).setInteractive();
+        this.add.text(width / 2, 280, 'START HRY', { fontSize: '24px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
         playBtn.on('pointerdown', () => this.scene.start('GameScene'));
+
+        // SEKCE STATISTIKY
+        this.add.text(width / 2, 380, '--- HISTORIE HER ---', { fontSize: '18px', fill: '#fff', alpha: 0.8 }).setOrigin(0.5);
+        
+        this.drawHistory();
+
+        // Nejlepší úspěšnost v rohu
+        const bestAcc = localStorage.getItem('hoofBestAcc') || '0';
+        this.add.text(width / 2, 350, `NEJLEPŠÍ ÚSPĚŠNOST: ${bestAcc}%`, { fontSize: '16px', fill: '#f1c40f' }).setOrigin(0.5);
+    }
+
+    drawHistory() {
+        const { width } = this.scale;
+        let history = JSON.parse(localStorage.getItem('hoofHistory') || '[]');
+        
+        // Zobrazíme jen posledních 5 záznamů
+        history.reverse().slice(0, 5).forEach((game, index) => {
+            const yPos = 420 + (index * 45);
+            
+            // Pozadí pro řádek
+            this.add.rectangle(width/2, yPos, 380, 35, 0x000, 0.2).setOrigin(0.5);
+            
+            const dateStr = game.date.split(' ')[0];
+            const text = `${dateStr}  |  Kolo: ${game.round}  |  Acc: ${game.acc}%`;
+            
+            this.add.text(width/2, yPos, text, { 
+                fontSize: '16px', fill: '#fff', fontStyle: 'bold' 
+            }).setOrigin(0.5);
+        });
+
+        if (history.length === 0) {
+            this.add.text(width/2, 450, 'Zatím žádné odehrané hry', { fontSize: '16px', fill: '#fff', alpha: 0.5 }).setOrigin(0.5);
+        }
     }
 }
 
@@ -83,7 +116,7 @@ class GameScene extends Phaser.Scene {
         this.hitsInRound = 0;
         this.canShoot = true;
         this.isConfirmingExit = false;
-        this.hasHitInThisFlight = false; // Zámek pro jeden zásah
+        this.hasHitInThisFlight = false;
 
         this.splashManager = this.add.particles(0, 0, 'splash_drop', {
             speed: { min: -150, max: 150 },
@@ -102,7 +135,6 @@ class GameScene extends Phaser.Scene {
         this.hoof = this.add.sprite(width / 2, height - 70, 'hoof').setDepth(5);
         this.ball = this.physics.add.sprite(width / 2, height - 110, 'ball').setCircle(12).setDepth(5);
         
-        // Nastavení odrazu
         this.ball.setBounce(0.5);
         this.ball.setCollideWorldBounds(true);
 
@@ -132,15 +164,11 @@ class GameScene extends Phaser.Scene {
             this.handleSwipe(p);
         });
         
-        // Kolize s kelímky
         this.physics.add.overlap(this.ball, this.cups, this.onBallOverlap, null, this);
     }
 
     onBallOverlap(ball, cup) {
-        // Pokud už míček v tomto letu něco trefil, ignoruj
         if (this.hasHitInThisFlight) return;
-
-        // Kontrola "výšky" (scale) - trefa se uzná jen když je míček nízko (u stolu)
         if (ball.scale <= 0.52 && ball.scale >= 0.42) {
             this.hasHitInThisFlight = true;
             this.cameras.main.shake(150, 0.015);
@@ -150,11 +178,8 @@ class GameScene extends Phaser.Scene {
             this.totalHits++;
             this.updateStats();
             this.updateFormations();
-            
-            // Zastavíme míček po trefě
             ball.setVelocity(0);
         } 
-        // Pokud je míček příliš velký, letí nad kelímkem (nic se nestane, overlap proběhne vizuálně nad ním)
     }
 
     setupExitDialog() {
@@ -163,11 +188,32 @@ class GameScene extends Phaser.Scene {
         const bg = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
         const box = this.add.rectangle(width/2, height/2, 300, 200, 0x2c3e50).setOrigin(0.5);
         const txt = this.add.text(width/2, height/2 - 40, 'OPRAVDU ODEJÍT?', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+        
         const yesBtn = this.add.text(width/2 - 60, height/2 + 40, 'ANO', { fontSize: '28px', fill: '#e74c3c', fontStyle: 'bold' }).setOrigin(0.5).setInteractive();
         const noBtn = this.add.text(width/2 + 60, height/2 + 40, 'NE', { fontSize: '28px', fill: '#2ecc71', fontStyle: 'bold' }).setOrigin(0.5).setInteractive();
-        yesBtn.on('pointerdown', () => this.scene.start('MenuScene'));
+        
+        yesBtn.on('pointerdown', () => {
+            this.saveGameToHistory(); // Uložíme progres před odchodem
+            this.scene.start('MenuScene');
+        });
         noBtn.on('pointerdown', () => { this.exitOverlay.setVisible(false); this.isConfirmingExit = false; });
         this.exitOverlay.add([bg, box, txt, yesBtn, noBtn]);
+    }
+
+    saveGameToHistory() {
+        if (this.totalShots === 0) return; // Neukládat prázdné hry
+        
+        let history = JSON.parse(localStorage.getItem('hoofHistory') || '[]');
+        const acc = Math.round((this.totalHits / this.totalShots) * 100);
+        
+        const gameRecord = {
+            date: new Date().toLocaleString('cs-CZ'),
+            round: this.currentRound,
+            acc: acc
+        };
+        
+        history.push(gameRecord);
+        localStorage.setItem('hoofHistory', JSON.stringify(history));
     }
 
     confirmExit() { this.isConfirmingExit = true; this.exitOverlay.setVisible(true); }
@@ -205,7 +251,7 @@ class GameScene extends Phaser.Scene {
                 const x = cx - ((rowSize - 1) * gap / 2) + (i * gap);
                 const y = sy + (rIdx * (gap * 0.866));
                 let c = this.cups.create(x, y, 'cup');
-                c.setCircle(18); // Menší hitbox pro přesnější zásah
+                c.setCircle(18);
                 c.refreshBody();
                 c.setDepth(2);
             }
@@ -218,20 +264,13 @@ class GameScene extends Phaser.Scene {
         const dy = pointer.y - this.swipeStart.y;
         if (dy < -40) {
             this.canShoot = false;
-            this.hasHitInThisFlight = false; // Reset zásahu pro nový hod
+            this.hasHitInThisFlight = false;
             this.shotsInRound++;
             this.totalShots++;
             this.ball.body.setVelocity(dx * 2.2, dy * 3.5);
-            
-            this.tweens.add({ 
-                targets: this.ball, 
-                scale: 0.45, 
-                duration: 600, 
-                ease: 'Cubic.out', 
-                onComplete: () => {
-                    this.time.delayedCall(500, () => this.processTurn());
-                } 
-            });
+            this.tweens.add({ targets: this.ball, scale: 0.45, duration: 600, ease: 'Cubic.out', onComplete: () => {
+                this.time.delayedCall(500, () => this.processTurn());
+            }});
         }
         this.swipeStart = null;
     }
@@ -246,21 +285,15 @@ class GameScene extends Phaser.Scene {
     updateFormations() {
         const left = this.cups.countActive();
         if ([6, 3, 1].includes(left)) this.spawnCups(left);
-        else if (left === 0) { this.showBanner("VÍTĚZ!"); this.time.delayedCall(2000, () => this.scene.start('MenuScene')); }
+        else if (left === 0) { 
+            this.saveGameToHistory(); // Uložit při výhře
+            this.showBanner("VÍTĚZ!"); 
+            this.time.delayedCall(2000, () => this.scene.start('MenuScene')); 
+        }
     }
 
     processTurn() {
-        if (this.hasHitInThisFlight) {
-            // Pokud trefil, vyhodnotíme bonusy atd.
-            const isBonus = this.shotsInRound === 2 && this.hitsInRound === 2 && !this.bonusActive;
-            if (isBonus) {
-                this.bonusActive = true; this.showBanner("BONUS!"); 
-                this.resetBall();
-                return;
-            }
-        }
-
-        if (this.shotsInRound >= (this.bonusActive ? 3 : 2)) {
+        if (this.shotsInRound >= (this.bonusActive ? 3 : 2) || (this.hasHitInThisFlight && this.shotsInRound === (this.bonusActive ? 3 : 2))) {
             this.currentRound++;
             this.uiText.setText(`KOLO: ${this.currentRound}`); 
             this.showBanner(`KOLO ${this.currentRound}`);

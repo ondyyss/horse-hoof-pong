@@ -1,5 +1,5 @@
 /**
- * KONFIGURACE HRY - HORSE HOOF PONG (COMBO UI UPDATE)
+ * KONFIGURACE HRY - HORSE HOOF PONG (HIT & MISS UPDATE)
  */
 const config = {
     type: Phaser.AUTO,
@@ -93,7 +93,7 @@ class GameScene extends Phaser.Scene {
         this.totalShots = 0; this.totalHits = 0; this.currentRound = 1;
         this.shotsInRound = 0; this.hitsInRound = 0; this.canShoot = true;
         this.isConfirmingExit = false;
-        this.comboCount = 0; // NOVÉ: Počítadlo comba
+        this.comboCount = 0;
 
         this.splashManager = this.add.particles(0, 0, 'splash_drop', {
             speed: { min: -150, max: 150 }, angle: { min: 220, max: 320 },
@@ -170,8 +170,8 @@ class GameScene extends Phaser.Scene {
             const dist = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y);
             if (dist < 25 && !hitFound) {
                 hitFound = true;
-                this.comboCount++; // Zvýšení comba
-                this.showComboText(cup.x, cup.y); // NOVÉ: Zobrazení HIT/DOUBLE/TRIPLE
+                this.comboCount++;
+                this.showComboText(cup.x, cup.y);
                 
                 this.cameras.main.shake(150, 0.015);
                 this.splashManager.emitParticleAt(cup.x, cup.y, 20);
@@ -184,7 +184,8 @@ class GameScene extends Phaser.Scene {
         });
 
         if (!hitFound) {
-            this.comboCount = 0; // Reset comba při minutí
+            this.comboCount = 0;
+            this.showMissText(); // NOVÉ: Zobrazení MISS
             this.tweens.add({
                 targets: this.ball,
                 y: this.ball.y + 50,
@@ -193,34 +194,64 @@ class GameScene extends Phaser.Scene {
                 onComplete: () => this.processTurn()
             });
         } else {
-            this.time.delayedCall(500, () => this.processTurn());
+            this.time.delayedCall(800, () => this.processTurn()); // Prodloužená pauza po zásahu
         }
     }
 
-    // NOVÉ: Funkce pro animovaný HIT text
     showComboText(x, y) {
         let txt = "HIT!";
         let color = "#ffffff";
-
         if (this.comboCount === 2) { txt = "DOUBLE HIT!"; color = "#f1c40f"; }
         else if (this.comboCount >= 3) { txt = "TRIPLE HIT!!!"; color = "#e67e22"; }
 
         const floatingText = this.add.text(x, y - 20, txt, {
-            fontSize: '28px',
-            fill: color,
-            fontStyle: '900',
-            stroke: '#000',
-            strokeThickness: 4
+            fontSize: '32px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 5
         }).setOrigin(0.5).setDepth(40);
 
         this.tweens.add({
             targets: floatingText,
-            y: y - 100,
+            y: y - 120,
             alpha: 0,
-            scale: 1.5,
-            duration: 800,
-            ease: 'Back.out',
+            scale: 1.4,
+            duration: 1200, // Déle na obrazovce
+            ease: 'Cubic.out',
             onComplete: () => floatingText.destroy()
+        });
+    }
+
+    // NOVÉ: Funkce pro nápis MISS
+    showMissText() {
+        const { width, height } = this.scale;
+        const missText = this.add.text(width / 2, height / 2, "MISS", {
+            fontSize: '60px', fill: '#e74c3c', fontStyle: '900', stroke: '#000', strokeThickness: 6
+        }).setOrigin(0.5).setDepth(40).setAlpha(0).setScale(0.5);
+
+        this.tweens.add({
+            targets: missText,
+            alpha: 1,
+            scale: 1.2,
+            duration: 300,
+            ease: 'Back.out',
+            onComplete: () => {
+                // Jemné zatřesení s textem
+                this.tweens.add({
+                    targets: missText,
+                    x: width / 2 + 5,
+                    duration: 50,
+                    yoyo: true,
+                    repeat: 4
+                });
+                // Po chvíli zmizí
+                this.time.delayedCall(800, () => {
+                    this.tweens.add({
+                        targets: missText,
+                        alpha: 0,
+                        scale: 1.5,
+                        duration: 300,
+                        onComplete: () => missText.destroy()
+                    });
+                });
+            }
         });
     }
 

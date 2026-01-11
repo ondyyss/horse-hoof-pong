@@ -1,6 +1,6 @@
 /**
- * HOOF PONG - SWIPE EDITION WITH TRAJECTORY
- * Ovládání švihem + predikce dráhy (tečky)
+ * HOOF PONG - LONG TABLE EDITION
+ * Kelímky na konci stolu + Swipe ovládání s predikcí
  */
 const config = {
     type: Phaser.AUTO,
@@ -49,14 +49,14 @@ class GameScene extends Phaser.Scene {
 
         // --- TRAJEKTORIE (TEČKY) ---
         this.dots = [];
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 10; i++) {
             let d = this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10);
             this.dots.push(d);
         }
 
         // --- OBJEKTY ---
         this.cups = this.physics.add.staticGroup();
-        this.spawnCups(10);
+        this.spawnCups(10); // Kelímky jsou nyní posunuty v této funkci
 
         this.ball = this.physics.add.sprite(width / 2, height - 110, 'ball').setDepth(20);
         this.ballShadow = this.add.sprite(width / 2, height - 100, 'shadow').setAlpha(0.3).setDepth(4);
@@ -85,20 +85,19 @@ class GameScene extends Phaser.Scene {
     updateTrajectory(p) {
         const dx = this.swipeStart.x - p.x;
         const dy = this.swipeStart.y - p.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
+        const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Omezení síly pro zobrazení
-        const limitedDist = Math.min(dist, 200);
+        const limitedForce = Math.min(dist, 250);
         
         this.dots.forEach((dot, i) => {
-            const step = i / this.dots.length * 0.5; // Ukazuje jen do 50 % dráhy
-            const travelX = Math.cos(angle) * limitedDist * 3.5 * step;
-            const travelY = Math.sin(angle) * limitedDist * 3.5 * step;
+            const step = i / this.dots.length * 0.45; // Ukazuje jen do 45 % dráhy
+            const travelX = Math.cos(angle) * limitedForce * 4.5 * step;
+            const travelY = Math.sin(angle) * limitedForce * 4.5 * step;
             
             dot.setPosition(this.ball.x + travelX, this.ball.y + travelY);
-            dot.setAlpha(1 - step);
-            dot.setScale(1 - step);
+            dot.setAlpha(1 - (i / this.dots.length));
+            dot.setScale(1 - (i / (this.dots.length * 2)));
         });
     }
 
@@ -108,11 +107,9 @@ class GameScene extends Phaser.Scene {
         const dist = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
 
-        // Skrytí teček
         this.dots.forEach(d => d.setAlpha(0));
 
-        // Minimální švih pro odpal
-        if (dist > 20) {
+        if (dist > 25) {
             this.shoot(angle, dist);
         }
         this.swipeStart = null;
@@ -122,14 +119,13 @@ class GameScene extends Phaser.Scene {
         this.isFlying = true;
         this.shotsInRound++;
 
-        // Kalibrace síly: převede délku swipu na rychlost
-        // Střední swipe (cca 150px) = ideální hod
-        let finalSpeed = Math.min(Math.max(force * 3.8, 350), 750);
+        // Upravená rychlost pro dlouhý stůl
+        let finalSpeed = Math.min(Math.max(force * 4.2, 400), 900);
 
         this.ball.setVelocity(Math.cos(angle) * finalSpeed, Math.sin(angle) * finalSpeed);
 
         this.tweens.add({
-            targets: this.ball, scale: 0.4, duration: 650, yoyo: true, ease: 'Quad.Out',
+            targets: this.ball, scale: 0.35, duration: 750, yoyo: true, ease: 'Quad.Out',
             onComplete: () => { this.isFlying = false; this.checkLanding(); }
         });
     }
@@ -137,7 +133,7 @@ class GameScene extends Phaser.Scene {
     update() {
         if (this.ball) {
             this.ballShadow.x = this.ball.x;
-            this.ballShadow.y = this.ball.y + (this.isFlying ? 20 : 10);
+            this.ballShadow.y = this.ball.y + (this.isFlying ? 25 : 10);
             
             if (this.shotsInRound === 2 && this.hitsInRound === 2) {
                 this.emitFire(!this.isFlying);
@@ -150,7 +146,7 @@ class GameScene extends Phaser.Scene {
         this.ball.setVelocity(0);
         let hitFound = false;
         this.cups.children.entries.forEach(cup => {
-            if (Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y) < 26 && !hitFound) {
+            if (Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y) < 28 && !hitFound) {
                 hitFound = true; this.hitsInRound++;
                 let msg = (this.shotsInRound === 3) ? "TRIPLE FIRE!" : (this.hitsInRound === 2 ? "DOUBLE HIT!" : "HIT!");
                 this.popText(msg, cup.x, cup.y, '#f1c40f');
@@ -190,7 +186,10 @@ class GameScene extends Phaser.Scene {
 
     spawnCups(count) {
         this.cups.clear(true, true);
-        const cx = this.scale.width / 2, sy = 220, gap = 42;
+        const cx = this.scale.width / 2;
+        const sy = 80; // POSUNUTO ÚPLNĚ NAHORU
+        const gap = 42;
+        
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {

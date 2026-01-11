@@ -1,6 +1,6 @@
 /**
- * HOOF PONG - FULL COMPLETE CODE
- * Modern UI, Skill Power Bar, Combo Texts & Triple Fire
+ * HOOF PONG - DYNAMIC GRADIENT & CALIBRATED POWER
+ * Kompletní kód s dynamickým barevným barem a kalibrací na střed.
  */
 const config = {
     type: Phaser.AUTO,
@@ -19,14 +19,11 @@ class MenuScene extends Phaser.Scene {
         let bg = this.add.graphics();
         bg.fillGradientStyle(0x1abc9c, 0x1abc9c, 0x16a085, 0x16a085, 1);
         bg.fillRect(0, 0, width, height);
-
         this.add.text(width / 2, 150, 'HOOF PONG', { 
             fontSize: '64px', fill: '#fff', fontStyle: '900', stroke: '#000', strokeThickness: 8 
         }).setOrigin(0.5);
-
         const playBtn = this.add.rectangle(width / 2, height / 2, 220, 70, 0x27ae60).setInteractive();
         this.add.text(width / 2, height / 2, 'START', { fontSize: '32px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-        
         playBtn.on('pointerdown', () => this.scene.start('GameScene'));
     }
 }
@@ -36,15 +33,10 @@ class GameScene extends Phaser.Scene {
 
     preload() {
         let g = this.make.graphics({ x: 0, y: 0, add: false });
-        // Míček
         g.fillStyle(0xffffff); g.fillCircle(12, 12, 12); g.generateTexture('ball', 24, 24);
-        // Stín
         g.clear(); g.fillStyle(0x000000, 0.3); g.fillCircle(12, 12, 12); g.generateTexture('shadow', 24, 24);
-        // Kelímek
         g.clear(); g.fillStyle(0xc0392b); g.fillCircle(20, 20, 20); g.fillStyle(0xe74c3c); g.fillCircle(20, 20, 17); g.generateTexture('cup', 40, 40);
-        // Hoof (Odpalovač)
         g.clear(); g.fillStyle(0x3e2723); g.fillRoundedRect(0, 0, 80, 50, 10); g.generateTexture('hoof', 80, 50);
-        // Částice ohně
         g.clear(); g.fillStyle(0xffa500); g.fillCircle(4, 4, 4); g.generateTexture('fire1', 8, 8);
         g.clear(); g.fillStyle(0xffff00); g.fillCircle(2, 2, 2); g.generateTexture('fire2', 4, 4);
     }
@@ -54,23 +46,26 @@ class GameScene extends Phaser.Scene {
         this.currentRound = 1; this.shotsInRound = 0; this.hitsInRound = 0;
         this.isFlying = false; this.aimingState = 'IDLE';
 
-        // --- MODERNÍ POWER BAR (Glassmorphism) ---
+        // --- DYNAMICKÝ POWER BAR (Multi-color) ---
         this.powerValue = 0; this.powerDir = 1;
         this.barContainer = this.add.container(width - 50, height / 2).setVisible(false).setDepth(100);
         
         let barBg = this.add.graphics();
-        barBg.fillStyle(0x000000, 0.4); 
-        barBg.fillRoundedRect(-18, -105, 36, 210, 10); // Skleněný obal
-        barBg.fillStyle(0xff4444); 
-        barBg.fillRoundedRect(-12, -100, 24, 200, 8); // Červený podklad
-        barBg.fillStyle(0x2ecc71); 
-        barBg.fillRect(-12, -30, 24, 60); // Zelený Sweet Spot
-        this.barContainer.add(barBg);
+        barBg.fillStyle(0x000000, 0.5); barBg.fillRoundedRect(-20, -110, 40, 220, 12); // Okraj
 
-        this.pointer = this.add.rectangle(0, 0, 44, 8, 0xffffff).setDepth(101).setStrokeStyle(2, 0x000000);
+        // Kreslení barevných segmentů (Červená -> Oranžová -> Žlutá -> Zelená)
+        const colors = [0xff0000, 0xffa500, 0xffff00, 0x00ff00, 0xffff00, 0xffa500, 0xff0000];
+        const segHeight = 200 / colors.length;
+        colors.forEach((col, i) => {
+            barBg.fillStyle(col);
+            barBg.fillRect(-12, 100 - (i + 1) * segHeight, 24, segHeight);
+        });
+        
+        this.barContainer.add(barBg);
+        this.pointer = this.add.rectangle(0, 0, 48, 6, 0xffffff).setDepth(101).setStrokeStyle(2, 0x000000);
         this.barContainer.add(this.pointer);
 
-        // --- HERNÍ SVĚT ---
+        // --- HRA ---
         this.aimLine = this.add.graphics().setDepth(10);
         this.cups = this.physics.add.staticGroup();
         this.spawnCups(10);
@@ -80,11 +75,8 @@ class GameScene extends Phaser.Scene {
         this.hoof = this.add.sprite(width / 2, height - 70, 'hoof').setDepth(5);
 
         this.uiText = this.add.text(20, 20, '', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
-        this.infoText = this.add.text(width / 2, height / 2, '', { fontSize: '50px', fill: '#f1c40f', fontStyle: '900', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(60);
-        
         this.updateUI();
 
-        // --- OVLÁDÁNÍ ---
         this.input.on('pointerdown', () => this.handleDown());
         this.input.on('pointermove', (p) => this.handleMove(p));
         this.input.on('pointerup', () => this.handleUp());
@@ -92,17 +84,13 @@ class GameScene extends Phaser.Scene {
 
     handleDown() {
         if (this.isFlying) return;
-        if (this.aimingState === 'IDLE') {
-            this.aimingState = 'AIMING';
-        } else if (this.aimingState === 'POWER') {
-            this.shoot();
-        }
+        if (this.aimingState === 'IDLE') this.aimingState = 'AIMING';
+        else if (this.aimingState === 'POWER') this.shoot();
     }
 
     handleMove(pointer) {
         if (this.aimingState === 'AIMING') {
             this.aimAngle = Phaser.Math.Angle.Between(this.ball.x, this.ball.y, pointer.x, pointer.y);
-            this.targetDist = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, pointer.x, pointer.y);
         }
     }
 
@@ -114,49 +102,39 @@ class GameScene extends Phaser.Scene {
     }
 
     update() {
-        // Mířící čára
         this.aimLine.clear();
         if (this.aimingState === 'AIMING') {
             this.aimLine.lineStyle(3, 0xffffff, 0.3);
-            this.aimLine.lineBetween(this.ball.x, this.ball.y, 
-                this.ball.x + Math.cos(this.aimAngle) * 100, 
-                this.ball.y + Math.sin(this.aimAngle) * 100);
+            this.aimLine.lineBetween(this.ball.x, this.ball.y, this.ball.x + Math.cos(this.aimAngle) * 100, this.ball.y + Math.sin(this.aimAngle) * 100);
         }
 
-        // Animace Power Baru
         if (this.aimingState === 'POWER') {
-            this.powerValue += this.powerDir * 0.012; // Rychlost běžce
+            this.powerValue += this.powerDir * 0.015;
             if (this.powerValue >= 1 || this.powerValue <= 0) this.powerDir *= -1;
             this.pointer.y = 100 - (this.powerValue * 200);
         }
 
-        // Stín a Oheň
         if (this.ball) {
             this.ballShadow.x = this.ball.x;
             this.ballShadow.y = this.ball.y + (this.ball.scale * 20);
-            this.ballShadow.setScale(this.ball.scale);
-
-            // Triple fire efekt
             if (this.shotsInRound === 2 && this.hitsInRound === 2) {
                 this.emitFire(!this.isFlying);
                 this.ball.setTint(0xffaa00);
-            } else {
-                this.ball.clearTint();
-            }
+            } else { this.ball.clearTint(); }
         }
     }
 
     shoot() {
-        this.aimingState = 'IDLE';
-        this.isFlying = true;
-        this.barContainer.setVisible(false);
+        this.aimingState = 'IDLE'; this.isFlying = true; this.barContainer.setVisible(false);
         this.shotsInRound++;
 
-        // Dynamická síla podle míření a power baru
-        let distModifier = this.targetDist / 420;
-        const speed = (380 + (this.powerValue * 600)) * distModifier;
+        // KALIBRACE: 0.5 (zelená) = ideální hod doprostřed (cca 650 rychlost)
+        // Rozsah rychlosti 450 (spodní červená) až 850 (horní červená)
+        const baseSpeed = 450;
+        const speedRange = 400;
+        const finalSpeed = baseSpeed + (this.powerValue * speedRange);
 
-        this.ball.setVelocity(Math.cos(this.aimAngle) * speed, Math.sin(this.aimAngle) * speed);
+        this.ball.setVelocity(Math.cos(this.aimAngle) * finalSpeed, Math.sin(this.aimAngle) * finalSpeed);
 
         this.tweens.add({
             targets: this.ball, scale: 0.4, duration: 650, yoyo: true, ease: 'Quad.Out',
@@ -167,21 +145,13 @@ class GameScene extends Phaser.Scene {
     checkLanding() {
         this.ball.setVelocity(0);
         let hitFound = false;
-
         this.cups.children.entries.forEach(cup => {
             const dist = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y);
             if (dist < 26 && !hitFound) {
-                hitFound = true;
-                this.hitsInRound++;
-                
-                // Určení textu zásahu
-                let msg = "HIT!";
-                if (this.shotsInRound === 3) msg = "TRIPLE FIRE!";
-                else if (this.hitsInRound === 2) msg = "DOUBLE HIT!";
-                
+                hitFound = true; this.hitsInRound++;
+                let msg = (this.shotsInRound === 3) ? "TRIPLE FIRE!" : (this.hitsInRound === 2 ? "DOUBLE HIT!" : "HIT!");
                 this.popText(msg, cup.x, cup.y, '#f1c40f');
-                cup.destroy();
-                this.updateFormations();
+                cup.destroy(); this.updateFormations();
             }
         });
 
@@ -189,37 +159,26 @@ class GameScene extends Phaser.Scene {
             this.popText('MISS', this.scale.width / 2, this.scale.height / 2, '#e74c3c', 60);
             this.tweens.add({ targets: this.ball, y: this.ball.y + 40, alpha: 0, duration: 400 });
         }
-        
         this.time.delayedCall(900, () => this.processTurn());
     }
 
     popText(txt, x, y, color, size = 32) {
-        const t = this.add.text(x, y, txt, { 
-            fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 5 
-        }).setOrigin(0.5).setDepth(100);
-        
-        this.tweens.add({
-            targets: t, y: y - 100, alpha: 0, scale: 1.5, duration: 800,
-            onComplete: () => t.destroy()
-        });
+        const t = this.add.text(x, y, txt, { fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(100);
+        this.tweens.add({ targets: t, y: y - 100, alpha: 0, scale: 1.5, duration: 800, onComplete: () => t.destroy() });
     }
 
     processTurn() {
         let hasTriple = (this.hitsInRound === 2 && this.shotsInRound === 2);
         if (this.shotsInRound >= 3 || (this.shotsInRound === 2 && !hasTriple)) {
-            this.currentRound++; 
-            this.shotsInRound = 0; 
-            this.hitsInRound = 0;
+            this.currentRound++; this.shotsInRound = 0; this.hitsInRound = 0;
             this.showBanner(`KOLO ${this.currentRound}`);
         }
-        this.updateUI();
-        this.resetBall();
+        this.updateUI(); this.resetBall();
     }
 
     resetBall() {
         this.ball.setPosition(this.scale.width / 2, this.scale.height - 110).setVelocity(0).setScale(1).setAlpha(1);
-        this.aimingState = 'IDLE';
-        this.powerValue = 0;
+        this.aimingState = 'IDLE'; this.powerValue = 0;
     }
 
     updateUI() {
@@ -242,17 +201,13 @@ class GameScene extends Phaser.Scene {
 
     updateFormations() {
         const left = this.cups.countActive();
-        if ([6, 3, 1].includes(left)) {
-            this.spawnCups(left);
-        } else if (left === 0) {
-            this.spawnCups(10);
-            this.showBanner("VYČIŠTĚNO!");
-        }
+        if ([6, 3, 1].includes(left)) this.spawnCups(left);
+        else if (left === 0) { this.spawnCups(10); this.showBanner("VYČIŠTĚNO!"); }
     }
 
     emitFire(isIdle) {
         const p = this.add.sprite(this.ball.x + (Math.random() * 10 - 5), this.ball.y, Math.random() > 0.5 ? 'fire1' : 'fire2');
-        p.setDepth(19).setScale(this.ball.scale);
+        p.setDepth(19);
         this.tweens.add({ targets: p, y: isIdle ? p.y - 40 : p.y + 20, alpha: 0, duration: 400, onComplete: () => p.destroy() });
     }
 

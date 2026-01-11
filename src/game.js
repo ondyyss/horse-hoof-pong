@@ -1,6 +1,6 @@
 /**
- * HOOF PONG - FINAL CALIBRATED PHYSICS
- * Střed baru (zelená) = přesný střed formace 1-2-3-4.
+ * HOOF PONG - SWIPE EDITION WITH TRAJECTORY
+ * Ovládání švihem + predikce dráhy (tečky)
  */
 const config = {
     type: Phaser.AUTO,
@@ -37,6 +37,7 @@ class GameScene extends Phaser.Scene {
         g.clear(); g.fillStyle(0x000000, 0.3); g.fillCircle(12, 12, 12); g.generateTexture('shadow', 24, 24);
         g.clear(); g.fillStyle(0xc0392b); g.fillCircle(20, 20, 20); g.fillStyle(0xe74c3c); g.fillCircle(20, 20, 17); g.generateTexture('cup', 40, 40);
         g.clear(); g.fillStyle(0x3e2723); g.fillRoundedRect(0, 0, 80, 50, 10); g.generateTexture('hoof', 80, 50);
+        g.clear(); g.fillStyle(0xffffff, 0.5); g.fillCircle(4, 4, 4); g.generateTexture('dot', 8, 8);
         g.clear(); g.fillStyle(0xffa500); g.fillCircle(4, 4, 4); g.generateTexture('fire1', 8, 8);
         g.clear(); g.fillStyle(0xffff00); g.fillCircle(2, 2, 2); g.generateTexture('fire2', 4, 4);
     }
@@ -44,31 +45,16 @@ class GameScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
         this.currentRound = 1; this.shotsInRound = 0; this.hitsInRound = 0;
-        this.isFlying = false; this.aimingState = 'IDLE';
+        this.isFlying = false;
 
-        // --- POWER BAR S PLYNULÝM GRADIENTEM ---
-        this.powerValue = 0;
-        this.powerDir = 1;
-        this.barContainer = this.add.container(width - 50, height / 2).setVisible(false).setDepth(100);
-        
-        let barBg = this.add.graphics();
-        barBg.fillStyle(0x000000, 0.6);
-        barBg.fillRoundedRect(-15, -105, 30, 210, 8);
-
-        // Plynulý gradient barev
-        // Horní část (Zelená -> Žlutá -> Červená)
-        barBg.fillGradientStyle(0xff0000, 0xff0000, 0x00ff00, 0x00ff00, 1);
-        barBg.fillRect(-10, -100, 20, 100);
-        // Spodní část (Zelená -> Žlutá -> Červená)
-        barBg.fillGradientStyle(0x00ff00, 0x00ff00, 0xff0000, 0xff0000, 1);
-        barBg.fillRect(-10, 0, 20, 100);
-
-        this.barContainer.add(barBg);
-        this.pointer = this.add.rectangle(0, 0, 40, 6, 0xffffff).setDepth(101).setStrokeStyle(2, 0x000000);
-        this.barContainer.add(this.pointer);
+        // --- TRAJEKTORIE (TEČKY) ---
+        this.dots = [];
+        for (let i = 0; i < 8; i++) {
+            let d = this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10);
+            this.dots.push(d);
+        }
 
         // --- OBJEKTY ---
-        this.aimLine = this.add.graphics().setDepth(10);
         this.cups = this.physics.add.staticGroup();
         this.spawnCups(10);
 
@@ -79,78 +65,85 @@ class GameScene extends Phaser.Scene {
         this.uiText = this.add.text(20, 20, '', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
         this.updateUI();
 
-        this.input.on('pointerdown', () => this.handleDown());
-        this.input.on('pointermove', (p) => this.handleMove(p));
-        this.input.on('pointerup', () => this.handleUp());
+        // --- SWIPE OVLÁDÁNÍ ---
+        this.input.on('pointerdown', (p) => {
+            if (this.isFlying) return;
+            this.swipeStart = { x: p.x, y: p.y };
+        });
+
+        this.input.on('pointermove', (p) => {
+            if (this.isFlying || !this.swipeStart) return;
+            this.updateTrajectory(p);
+        });
+
+        this.input.on('pointerup', (p) => {
+            if (this.isFlying || !this.swipeStart) return;
+            this.handleSwipeEnd(p);
+        });
     }
 
-    handleDown() {
-        if (this.isFlying) return;
-        if (this.aimingState === 'IDLE') {
-            this.aimingState = 'AIMING';
-        } else if (this.aimingState === 'POWER') {
-            this.shoot();
-        }
+    updateTrajectory(p) {
+        const dx = this.swipeStart.x - p.x;
+        const dy = this.swipeStart.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        // Omezení síly pro zobrazení
+        const limitedDist = Math.min(dist, 200);
+        
+        this.dots.forEach((dot, i) => {
+            const step = i / this.dots.length * 0.5; // Ukazuje jen do 50 % dráhy
+            const travelX = Math.cos(angle) * limitedDist * 3.5 * step;
+            const travelY = Math.sin(angle) * limitedDist * 3.5 * step;
+            
+            dot.setPosition(this.ball.x + travelX, this.ball.y + travelY);
+            dot.setAlpha(1 - step);
+            dot.setScale(1 - step);
+        });
     }
 
-    handleMove(pointer) {
-        if (this.aimingState === 'AIMING') {
-            this.aimAngle = Phaser.Math.Angle.Between(this.ball.x, this.ball.y, pointer.x, pointer.y);
+    handleSwipeEnd(p) {
+        const dx = this.swipeStart.x - p.x;
+        const dy = this.swipeStart.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        // Skrytí teček
+        this.dots.forEach(d => d.setAlpha(0));
+
+        // Minimální švih pro odpal
+        if (dist > 20) {
+            this.shoot(angle, dist);
         }
+        this.swipeStart = null;
     }
 
-    handleUp() {
-        if (this.aimingState === 'AIMING') {
-            this.aimingState = 'POWER';
-            this.powerValue = 0; 
-            this.powerDir = 1;
-            this.barContainer.setVisible(true);
-        }
-    }
-
-    update() {
-        this.aimLine.clear();
-        if (this.aimingState === 'AIMING') {
-            this.aimLine.lineStyle(3, 0xffffff, 0.3);
-            this.aimLine.lineBetween(this.ball.x, this.ball.y, this.ball.x + Math.cos(this.aimAngle) * 100, this.ball.y + Math.sin(this.aimAngle) * 100);
-        }
-
-        if (this.aimingState === 'POWER') {
-            this.powerValue += this.powerDir * 0.018; // Mírně rychlejší bar pro výzvu
-            if (this.powerValue >= 1 || this.powerValue <= 0) this.powerDir *= -1;
-            this.pointer.y = 100 - (this.powerValue * 200);
-        }
-
-        if (this.ball) {
-            this.ballShadow.x = this.ball.x;
-            this.ballShadow.y = this.ball.y + (this.isFlying ? 20 : 10);
-            if (this.shotsInRound === 2 && this.hitsInRound === 2) {
-                this.emitFire(!this.isFlying);
-                this.ball.setTint(0xffaa00);
-            } else { this.ball.clearTint(); }
-        }
-    }
-
-    shoot() {
+    shoot(angle, force) {
         this.isFlying = true;
-        this.barContainer.setVisible(false);
-        this.aimingState = 'IDLE';
         this.shotsInRound++;
 
-        // --- NOVÁ KALIBRACE ---
-        // 0.5 (střed/zelená) = rychlost cca 515 (přesný střed formace 10 kelímků)
-        // 0.0 (dole/červená) = rychlost cca 380 (nedoletí)
-        // 1.0 (nahoře/červená) = rychlost cca 650 (přeletí)
-        const minSpeed = 380;
-        const maxSpeed = 650;
-        const finalSpeed = minSpeed + (this.powerValue * (maxSpeed - minSpeed));
+        // Kalibrace síly: převede délku swipu na rychlost
+        // Střední swipe (cca 150px) = ideální hod
+        let finalSpeed = Math.min(Math.max(force * 3.8, 350), 750);
 
-        this.ball.setVelocity(Math.cos(this.aimAngle) * finalSpeed, Math.sin(this.aimAngle) * finalSpeed);
+        this.ball.setVelocity(Math.cos(angle) * finalSpeed, Math.sin(angle) * finalSpeed);
 
         this.tweens.add({
             targets: this.ball, scale: 0.4, duration: 650, yoyo: true, ease: 'Quad.Out',
             onComplete: () => { this.isFlying = false; this.checkLanding(); }
         });
+    }
+
+    update() {
+        if (this.ball) {
+            this.ballShadow.x = this.ball.x;
+            this.ballShadow.y = this.ball.y + (this.isFlying ? 20 : 10);
+            
+            if (this.shotsInRound === 2 && this.hitsInRound === 2) {
+                this.emitFire(!this.isFlying);
+                this.ball.setTint(0xffaa00);
+            } else { this.ball.clearTint(); }
+        }
     }
 
     checkLanding() {
@@ -187,7 +180,7 @@ class GameScene extends Phaser.Scene {
 
     resetBall() {
         this.ball.setPosition(this.scale.width / 2, this.scale.height - 110).setVelocity(0).setScale(1).setAlpha(1);
-        this.aimingState = 'IDLE';
+        this.isFlying = false;
     }
 
     updateUI() {
@@ -197,7 +190,7 @@ class GameScene extends Phaser.Scene {
 
     spawnCups(count) {
         this.cups.clear(true, true);
-        const cx = this.scale.width / 2, sy = 220, gap = 42; // Posunuto sy na 220 pro lepší kalibraci
+        const cx = this.scale.width / 2, sy = 220, gap = 42;
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {

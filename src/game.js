@@ -1,6 +1,6 @@
 /**
- * HOOF PONG - LONG TABLE EDITION
- * Kelímky na konci stolu + Swipe ovládání s predikcí
+ * HOOF PONG - SWIPE & CALIBRATED PHYSICS
+ * Síla snížena o 75 %, opraveny nápisy MISS/HIT.
  */
 const config = {
     type: Phaser.AUTO,
@@ -47,7 +47,7 @@ class GameScene extends Phaser.Scene {
         this.currentRound = 1; this.shotsInRound = 0; this.hitsInRound = 0;
         this.isFlying = false;
 
-        // --- TRAJEKTORIE (TEČKY) ---
+        // --- TEČKY TRAJEKTORIE ---
         this.dots = [];
         for (let i = 0; i < 10; i++) {
             let d = this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10);
@@ -56,7 +56,7 @@ class GameScene extends Phaser.Scene {
 
         // --- OBJEKTY ---
         this.cups = this.physics.add.staticGroup();
-        this.spawnCups(10); // Kelímky jsou nyní posunuty v této funkci
+        this.spawnCups(10);
 
         this.ball = this.physics.add.sprite(width / 2, height - 110, 'ball').setDepth(20);
         this.ballShadow = this.add.sprite(width / 2, height - 100, 'shadow').setAlpha(0.3).setDepth(4);
@@ -65,7 +65,7 @@ class GameScene extends Phaser.Scene {
         this.uiText = this.add.text(20, 20, '', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
         this.updateUI();
 
-        // --- SWIPE OVLÁDÁNÍ ---
+        // --- OVLÁDÁNÍ ---
         this.input.on('pointerdown', (p) => {
             if (this.isFlying) return;
             this.swipeStart = { x: p.x, y: p.y };
@@ -88,16 +88,16 @@ class GameScene extends Phaser.Scene {
         const angle = Math.atan2(dy, dx);
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        const limitedForce = Math.min(dist, 250);
+        // Síla pro tečky je teď mnohem nižší (75% dolů)
+        const limitedForce = Math.min(dist, 300);
         
         this.dots.forEach((dot, i) => {
-            const step = i / this.dots.length * 0.45; // Ukazuje jen do 45 % dráhy
-            const travelX = Math.cos(angle) * limitedForce * 4.5 * step;
-            const travelY = Math.sin(angle) * limitedForce * 4.5 * step;
+            const step = i / this.dots.length * 0.5; 
+            const travelX = Math.cos(angle) * limitedForce * 1.5 * step;
+            const travelY = Math.sin(angle) * limitedForce * 1.5 * step;
             
             dot.setPosition(this.ball.x + travelX, this.ball.y + travelY);
             dot.setAlpha(1 - (i / this.dots.length));
-            dot.setScale(1 - (i / (this.dots.length * 2)));
         });
     }
 
@@ -109,7 +109,7 @@ class GameScene extends Phaser.Scene {
 
         this.dots.forEach(d => d.setAlpha(0));
 
-        if (dist > 25) {
+        if (dist > 15) {
             this.shoot(angle, dist);
         }
         this.swipeStart = null;
@@ -119,13 +119,14 @@ class GameScene extends Phaser.Scene {
         this.isFlying = true;
         this.shotsInRound++;
 
-        // Upravená rychlost pro dlouhý stůl
-        let finalSpeed = Math.min(Math.max(force * 4.2, 400), 900);
+        // --- SÍLA SNÍŽENA O 75 % ---
+        // Původní násobič byl ~4.2, nyní je ~1.1
+        let finalSpeed = Math.min(Math.max(force * 1.1, 150), 850);
 
         this.ball.setVelocity(Math.cos(angle) * finalSpeed, Math.sin(angle) * finalSpeed);
 
         this.tweens.add({
-            targets: this.ball, scale: 0.35, duration: 750, yoyo: true, ease: 'Quad.Out',
+            targets: this.ball, scale: 0.35, duration: 850, yoyo: true, ease: 'Quad.Out',
             onComplete: () => { this.isFlying = false; this.checkLanding(); }
         });
     }
@@ -145,25 +146,34 @@ class GameScene extends Phaser.Scene {
     checkLanding() {
         this.ball.setVelocity(0);
         let hitFound = false;
+        
         this.cups.children.entries.forEach(cup => {
             if (Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y) < 28 && !hitFound) {
                 hitFound = true; this.hitsInRound++;
                 let msg = (this.shotsInRound === 3) ? "TRIPLE FIRE!" : (this.hitsInRound === 2 ? "DOUBLE HIT!" : "HIT!");
                 this.popText(msg, cup.x, cup.y, '#f1c40f');
-                cup.destroy(); this.updateFormations();
+                cup.destroy(); 
+                this.updateFormations();
             }
         });
 
         if (!hitFound) {
-            this.popText('MISS', this.scale.width / 2, this.scale.height / 2, '#e74c3c', 60);
+            // MISS nápis fixovaný na střed
+            this.popText('MISS', this.scale.width / 2, this.scale.height / 2, '#e74c3c', 70);
             this.tweens.add({ targets: this.ball, y: this.ball.y + 40, alpha: 0, duration: 400 });
         }
-        this.time.delayedCall(900, () => this.processTurn());
+        this.time.delayedCall(1000, () => this.processTurn());
     }
 
     popText(txt, x, y, color, size = 32) {
-        const t = this.add.text(x, y, txt, { fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(100);
-        this.tweens.add({ targets: t, y: y - 100, alpha: 0, scale: 1.5, duration: 800, onComplete: () => t.destroy() });
+        const t = this.add.text(x, y, txt, { 
+            fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 6 
+        }).setOrigin(0.5).setDepth(200); // Vysoký depth, aby byl vidět
+        
+        this.tweens.add({
+            targets: t, y: y - 120, alpha: 0, scale: 1.4, duration: 900, 
+            onComplete: () => t.destroy() 
+        });
     }
 
     processTurn() {
@@ -187,7 +197,7 @@ class GameScene extends Phaser.Scene {
     spawnCups(count) {
         this.cups.clear(true, true);
         const cx = this.scale.width / 2;
-        const sy = 80; // POSUNUTO ÚPLNĚ NAHORU
+        const sy = 80; // Kelímky nahoře
         const gap = 42;
         
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));

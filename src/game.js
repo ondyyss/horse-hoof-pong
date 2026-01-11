@@ -1,6 +1,6 @@
 /**
- * HOOF PONG - PERFECT CENTER CALIBRATION
- * Kompletní kód: Střed baru = střed kelímků.
+ * HOOF PONG - FINAL CALIBRATED PHYSICS
+ * Střed baru (zelená) = přesný střed formace 1-2-3-4.
  */
 const config = {
     type: Phaser.AUTO,
@@ -55,10 +55,11 @@ class GameScene extends Phaser.Scene {
         barBg.fillStyle(0x000000, 0.6);
         barBg.fillRoundedRect(-15, -105, 30, 210, 8);
 
-        // Gradient: Horní půlka (Zelená -> Žlutá -> Červená)
+        // Plynulý gradient barev
+        // Horní část (Zelená -> Žlutá -> Červená)
         barBg.fillGradientStyle(0xff0000, 0xff0000, 0x00ff00, 0x00ff00, 1);
         barBg.fillRect(-10, -100, 20, 100);
-        // Gradient: Spodní půlka (Zelená -> Žlutá -> Červená)
+        // Spodní část (Zelená -> Žlutá -> Červená)
         barBg.fillGradientStyle(0x00ff00, 0x00ff00, 0xff0000, 0xff0000, 1);
         barBg.fillRect(-10, 0, 20, 100);
 
@@ -115,14 +116,14 @@ class GameScene extends Phaser.Scene {
         }
 
         if (this.aimingState === 'POWER') {
-            this.powerValue += this.powerDir * 0.015; 
+            this.powerValue += this.powerDir * 0.018; // Mírně rychlejší bar pro výzvu
             if (this.powerValue >= 1 || this.powerValue <= 0) this.powerDir *= -1;
             this.pointer.y = 100 - (this.powerValue * 200);
         }
 
         if (this.ball) {
             this.ballShadow.x = this.ball.x;
-            this.ballShadow.y = this.ball.y + 20;
+            this.ballShadow.y = this.ball.y + (this.isFlying ? 20 : 10);
             if (this.shotsInRound === 2 && this.hitsInRound === 2) {
                 this.emitFire(!this.isFlying);
                 this.ball.setTint(0xffaa00);
@@ -136,11 +137,12 @@ class GameScene extends Phaser.Scene {
         this.aimingState = 'IDLE';
         this.shotsInRound++;
 
-        // --- KALIBRACE SÍLY ---
-        // Střed (0.5) = přesný zásah do středu formace (cca 620 rychlost)
-        // Rozptyl: od 450 (příliš slabé) do 790 (příliš silné)
-        const minSpeed = 450;
-        const maxSpeed = 790;
+        // --- NOVÁ KALIBRACE ---
+        // 0.5 (střed/zelená) = rychlost cca 515 (přesný střed formace 10 kelímků)
+        // 0.0 (dole/červená) = rychlost cca 380 (nedoletí)
+        // 1.0 (nahoře/červená) = rychlost cca 650 (přeletí)
+        const minSpeed = 380;
+        const maxSpeed = 650;
         const finalSpeed = minSpeed + (this.powerValue * (maxSpeed - minSpeed));
 
         this.ball.setVelocity(Math.cos(this.aimAngle) * finalSpeed, Math.sin(this.aimAngle) * finalSpeed);
@@ -195,7 +197,7 @@ class GameScene extends Phaser.Scene {
 
     spawnCups(count) {
         this.cups.clear(true, true);
-        const cx = this.scale.width / 2, sy = 150, gap = 42; 
+        const cx = this.scale.width / 2, sy = 220, gap = 42; // Posunuto sy na 220 pro lepší kalibraci
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {

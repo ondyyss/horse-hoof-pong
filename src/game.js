@@ -1,5 +1,5 @@
 /**
- * KONFIGURACE HRY - HORSE HOOF PONG (KROK 2: SPLASH & SHAKE)
+ * KONFIGURACE HRY - HORSE HOOF PONG (KROK 3: TRAJEKTORIE & KULATÉ KELÍMKY)
  */
 const config = {
     type: Phaser.AUTO,
@@ -43,8 +43,6 @@ class MenuScene extends Phaser.Scene {
         const playBtn = this.add.rectangle(width / 2, 450, 220, 70, 0x27ae60).setInteractive();
         this.add.text(width / 2, 450, 'START HRY', { fontSize: '28px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
         playBtn.on('pointerdown', () => this.scene.start('GameScene'));
-
-        this.add.text(width - 20, height - 20, 'Created by: Ondřej Kadlec', { fontSize: '14px', fill: '#fff', alpha: 0.6 }).setOrigin(1);
     }
 }
 
@@ -60,24 +58,24 @@ class GameScene extends Phaser.Scene {
         
         // Míček
         g.fillStyle(0xffffff); g.fillCircle(12, 12, 12);
-        g.fillStyle(0xdddddd); g.fillCircle(15, 10, 5);
         g.generateTexture('ball', 24, 24);
         
         // Stín
         g.clear(); g.fillStyle(0x000000, 0.3); g.fillCircle(12, 12, 12);
         g.generateTexture('shadow', 24, 24);
         
-        // Kelímek (3D vzhled)
+        // KULATÝ KELÍMEK (upraveno na kruh)
         g.clear(); 
-        g.fillStyle(0xc0392b); g.fillRect(0, 4, 36, 32); 
-        g.fillStyle(0xe74c3c); g.fillRect(0, 0, 36, 6);
-        g.generateTexture('cup', 36, 36);
+        g.fillStyle(0xc0392b); g.fillCircle(20, 20, 20); // Spodní vrstva
+        g.fillStyle(0xe74c3c); g.fillCircle(20, 20, 17); // Horní vnitřek
+        g.lineStyle(2, 0xffffff, 0.5); g.strokeCircle(20, 20, 18); // Okraj
+        g.generateTexture('cup', 40, 40);
         
         // Kopyto
         g.clear(); g.fillStyle(0x3e2723); g.fillRoundedRect(0, 0, 80, 50, 10);
         g.generateTexture('hoof', 80, 50);
 
-        // ČÁSTICE (nové - textura pro splash)
+        // Částice (Splash)
         g.clear(); g.fillStyle(0xf1c40f); g.fillCircle(3, 3, 3);
         g.generateTexture('splash_drop', 6, 6);
     }
@@ -86,16 +84,17 @@ class GameScene extends Phaser.Scene {
         const { width, height } = this.scale;
         this.currentRound = 1; this.shotsInRound = 0; this.hitsInRound = 0; this.canShoot = true;
 
-        // SPRÁVCE ČÁSTIC (Splash efekt)
         this.splashManager = this.add.particles(0, 0, 'splash_drop', {
             speed: { min: -150, max: 150 },
-            angle: { min: 220, max: 320 }, // Směřuje nahoru
+            angle: { min: 220, max: 320 },
             scale: { start: 1, end: 0 },
             lifespan: 600,
             gravityY: 500,
-            quantity: 15,
             emitting: false
         });
+
+        // GRAFIKA PRO TRAJEKTORII
+        this.trajectoryGraphics = this.add.graphics();
 
         this.cups = this.physics.add.staticGroup();
         this.spawnCups(10);
@@ -109,10 +108,42 @@ class GameScene extends Phaser.Scene {
             fontSize: '52px', fill: '#f1c40f', fontStyle: '900', stroke: '#000', strokeThickness: 4
         }).setOrigin(0.5);
 
-        this.input.on('pointerdown', p => this.swipeStart = { x: p.x, y: p.y });
-        this.input.on('pointerup', p => this.handleSwipe(p));
+        this.input.on('pointerdown', p => {
+            if (!this.canShoot) return;
+            this.swipeStart = { x: p.x, y: p.y };
+        });
+
+        this.input.on('pointermove', p => {
+            if (this.swipeStart && this.canShoot) this.drawTrajectory(p);
+        });
+
+        this.input.on('pointerup', p => {
+            this.trajectoryGraphics.clear();
+            this.handleSwipe(p);
+        });
         
         this.showBanner(`PŘIPRAVIT...`);
+    }
+
+    drawTrajectory(pointer) {
+        this.trajectoryGraphics.clear();
+        this.trajectoryGraphics.lineStyle(3, 0xffffff, 0.5);
+        
+        const dx = (pointer.x - this.swipeStart.x) * 2.2;
+        const dy = (pointer.y - this.swipeStart.y) * 3.5;
+
+        // Vykreslíme tečkovanou čáru směru
+        if (dy < -30) {
+            let startX = this.ball.x;
+            let startY = this.ball.y;
+            
+            for (let i = 1; i <= 10; i++) {
+                let t = i / 10;
+                let tx = startX + dx * t * 0.2;
+                let ty = startY + dy * t * 0.2;
+                this.trajectoryGraphics.fillCircle(tx, ty, 3);
+            }
+        }
     }
 
     update() {
@@ -125,11 +156,20 @@ class GameScene extends Phaser.Scene {
 
     spawnCups(count) {
         this.cups.clear(true, true);
-        const cx = this.scale.width / 2; const sy = 150; const gap = 52;
+        const cx = this.scale.width / 2;
+        const sy = 150;
+        const radius = 20; // Poloměr kulatého kelímku
+        const gap = radius * 2; // Rozestup přesně na dotyk
+
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
+
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {
-                this.cups.create(cx - ((rowSize - 1) * gap / 2) + (i * gap), sy + (rIdx * gap), 'cup').refreshBody();
+                const x = cx - ((rowSize - 1) * gap / 2) + (i * gap);
+                const y = sy + (rIdx * (gap * 0.866)); // 0.866 zajistí, že řady do sebe zapadnou (trojúhelníková mřížka)
+                let cup = this.cups.create(x, y, 'cup');
+                cup.setCircle(radius);
+                cup.refreshBody();
             }
         });
     }
@@ -143,21 +183,16 @@ class GameScene extends Phaser.Scene {
             this.ball.body.setVelocity(dx * 2.2, dy * 3.5);
             this.tweens.add({ targets: this.ball, scale: 0.45, duration: 600, ease: 'Cubic.out', onComplete: () => this.checkResult() });
         }
+        this.swipeStart = null;
     }
 
     checkResult() {
         this.time.delayedCall(150, () => {
-            let hit = false;
             this.physics.overlap(this.ball, this.cups, (b, cup) => {
-                // EFEKT 1: Otřes kamery
                 this.cameras.main.shake(150, 0.015);
-                
-                // EFEKT 2: Splash (částice)
                 this.splashManager.emitParticleAt(cup.x, cup.y, 20);
-                
                 cup.destroy();
                 this.hitsInRound++;
-                hit = true;
                 this.updateFormations();
             });
             this.processTurn();

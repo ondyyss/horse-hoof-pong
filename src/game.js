@@ -62,12 +62,12 @@ class GameScene extends Phaser.Scene {
         this.spawnCups(10); 
 
         this.ball = this.physics.add.sprite(width / 2, height - 110, 'ball').setDepth(20);
-        this.ball.setBounce(0.6); // Odrazivost míčku
-        this.ball.setDrag(150);   // Tření (zastaví míček na stole)
+        this.ball.setBounce(0.8); // Přidán vyšší odraz pro "bounce shots"
+        this.ball.setDrag(120);   // Mírné tření na stole
         
         this.ballShadow = this.add.sprite(width / 2, height - 100, 'shadow').setAlpha(0.3).setDepth(4);
         
-        // Kolize s kelímky (fyzické odrazy od hran)
+        // Fyzická kolize s kelímky (odraz od okrajů)
         this.physics.add.collider(this.ball, this.cups);
 
         this.uiText = this.add.text(20, 20, '', { fontSize: '18px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
@@ -98,12 +98,13 @@ class GameScene extends Phaser.Scene {
 
     spawnCups(count) {
         this.cups.clear(true, true);
-        const cx = this.scale.width / 2, sy = 120, gap = 46;
+        const cx = this.scale.width / 2, sy = 120, gap = 48;
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
         
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {
-                this.cups.create(cx - ((rowSize - 1) * gap / 2) + (i * gap), sy + (rIdx * (gap * 0.85)), 'cup').setCircle(18);
+                let cup = this.cups.create(cx - ((rowSize - 1) * gap / 2) + (i * gap), sy + (rIdx * (gap * 0.85)), 'cup');
+                cup.setCircle(16); // Nastavení fyzického kruhu pro odrazy
             }
         });
     }
@@ -117,7 +118,7 @@ class GameScene extends Phaser.Scene {
         const dx = p.x - this.swipeStart.x, dy = p.y - this.swipeStart.y;
         const angle = Math.atan2(dy, dx), dist = Math.min(Math.sqrt(dx*dx + dy*dy), 220);
         this.dots.forEach((dot, i) => {
-            const step = (i / this.dots.length) * 0.75; 
+            const step = (i / this.dots.length) * 0.8; 
             dot.setPosition(this.ball.x + Math.cos(angle) * dist * 4 * step, this.ball.y + Math.sin(angle) * dist * 4 * step);
             dot.setAlpha(1 - (i / this.dots.length));
         });
@@ -135,25 +136,17 @@ class GameScene extends Phaser.Scene {
         this.isFlying = true;
         this.shotsInRound++;
         this.totalShots++; 
-        let speed = Math.min(Math.max(force * 3.2, 250), 900);
+        let speed = Math.min(Math.max(force * 3.5, 300), 950);
         this.ball.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
         
         this.tweens.add({
-            targets: this.ball, scale: 0.5, duration: 850, yoyo: true, ease: 'Quad.Out',
+            targets: this.ball, scale: 0.5, duration: 800, yoyo: true, ease: 'Quad.Out',
             onUpdate: () => {
-                // Kolize vypnutá jen když je míček hodně vysoko
+                // Kolize s okraji kelímků jen když je míček nízko
                 this.ball.body.checkCollision.none = (this.ball.scale < 0.7);
-                
-                // Kontrola zásahu během letu (když je nízko)
-                if (this.ball.scale > 0.8) {
-                    this.checkHit();
-                }
             },
             onComplete: () => {
-                // Po skončení tweenu míček "dopadne" a může se ještě chvíli koulet/odrážet
-                this.time.delayedCall(600, () => {
-                    if (this.isFlying) this.finishShot();
-                });
+                // Po dopadu na stůl míček nezmizí, ale pokračuje v update()
             }
         });
     }
@@ -161,16 +154,28 @@ class GameScene extends Phaser.Scene {
     checkHit() {
         if (!this.isFlying) return;
         this.cups.children.entries.forEach(cup => {
-            if (Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y) < 35) {
-                this.isFlying = false;
-                this.totalHits++;
-                this.popText("HIT!", cup.x, cup.y, '#f1c40f', 40);
-                cup.destroy(); 
-                this.ball.setVelocity(0); // Zastavit v kelímku
-                this.updateFormations();
-                this.updateUI();
-                this.time.delayedCall(800, () => this.nextStep());
+            // Míček musí být dostatečně nízko (scale > 0.8) pro pád do kelímku
+            let dist = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y);
+            if (dist < 32 && this.ball.scale > 0.8) {
+                this.executeHit(cup);
             }
+        });
+    }
+
+    executeHit(cup) {
+        this.isFlying = false;
+        this.totalHits++;
+        this.popText("HIT!", cup.x, cup.y, '#f1c40f', 40);
+        this.ball.setVelocity(0);
+        this.tweens.killTweensOf(this.ball);
+        
+        cup.destroy(); 
+        this.updateFormations();
+        this.updateUI();
+        
+        this.tweens.add({
+            targets: this.ball, scale: 0.7, alpha: 0, duration: 300,
+            onComplete: () => this.nextStep()
         });
     }
 
@@ -234,16 +239,15 @@ class GameScene extends Phaser.Scene {
         this.overlay = this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.7).setDepth(500).setInteractive();
         this.dialog = this.add.container(width/2, height/2).setDepth(501);
         const panel = this.add.rectangle(0, 0, 320, 180, 0x2c3e50).setStrokeStyle(3, 0xffffff);
-        const title = this.add.text(0, -40, 'MENU?', { fontSize: '28px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-        const yesBtn = this.add.rectangle(-70, 40, 100, 45, 0xc0392b).setInteractive();
-        const noBtn = this.add.rectangle(70, 40, 100, 45, 0x27ae60).setInteractive();
-        this.dialog.add([panel, title, yesBtn, noBtn, 
-            this.add.text(-70, 40, 'ANO', {fontSize: '18px', fill: '#fff', fontStyle: 'bold'}).setOrigin(0.5), 
-            this.add.text(70, 40, 'NE', {fontSize: '18px', fill: '#fff', fontStyle: 'bold'}).setOrigin(0.5)]);
-        yesBtn.on('pointerdown', () => this.scene.start('MenuScene'));
-        noBtn.on('pointerdown', () => {
-            this.isPaused = false; this.physics.world.resume(); this.overlay.destroy(); this.dialog.destroy();
-        });
+        this.dialog.add([panel, 
+            this.add.text(0, -40, 'MENU?', { fontSize: '28px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5),
+            this.add.rectangle(-70, 40, 100, 45, 0xc0392b).setInteractive().on('pointerdown', () => this.scene.start('MenuScene')),
+            this.add.rectangle(70, 40, 100, 45, 0x27ae60).setInteractive().on('pointerdown', () => {
+                this.isPaused = false; this.physics.world.resume(); this.overlay.destroy(); this.dialog.destroy();
+            }),
+            this.add.text(-70, 40, 'ANO', {fontSize: '18px', fill: '#fff'}).setOrigin(0.5),
+            this.add.text(70, 40, 'NE', {fontSize: '18px', fill: '#fff'}).setOrigin(0.5)
+        ]);
     }
 
     showVictory() {
@@ -252,24 +256,33 @@ class GameScene extends Phaser.Scene {
         const acc = Math.round((this.totalHits / this.totalShots) * 100);
         this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.85).setDepth(1000);
         const panel = this.add.container(width/2, height/2).setDepth(1001);
-        panel.add(this.add.text(0, -100, 'VÍTĚZ!', { fontSize: '64px', fill: '#f1c40f', fontStyle: '900' }).setOrigin(0.5));
-        panel.add(this.add.text(0, 0, `Hody: ${this.totalShots}\nÚspěšnost: ${acc}%`, { fontSize: '28px', fill: '#fff', align: 'center' }).setOrigin(0.5));
-        const restartBtn = this.add.rectangle(0, 140, 220, 60, 0x27ae60).setInteractive();
-        panel.add(restartBtn);
-        panel.add(this.add.text(0, 140, 'ZNOVU', { fontSize: '24px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5));
-        restartBtn.on('pointerdown', () => this.scene.restart());
+        panel.add([
+            this.add.text(0, -100, 'VÍTĚZ!', { fontSize: '64px', fill: '#f1c40f', fontStyle: '900' }).setOrigin(0.5),
+            this.add.text(0, 0, `Hody: ${this.totalShots}\nÚspěšnost: ${acc}%`, { fontSize: '28px', fill: '#fff', align: 'center' }).setOrigin(0.5),
+            this.add.rectangle(0, 140, 220, 60, 0x27ae60).setInteractive().on('pointerdown', () => this.scene.restart()),
+            this.add.text(0, 140, 'ZNOVU', { fontSize: '24px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5)
+        ]);
     }
 
     update() {
-        if (this.ball && !this.isPaused) {
-            this.ballShadow.x = this.ball.x;
-            this.ballShadow.y = this.ball.y + (this.isFlying ? 20 : 10);
-            this.ballShadow.setScale(this.ball.scale);
-            this.ballShadow.setAlpha(this.ball.alpha * 0.3);
-            
-            // Kontrola zásahu i při kutálení po stole
-            if (this.isFlying && this.ball.body.speed > 10 && this.ball.scale > 0.9) {
-                this.checkHit();
+        if (!this.ball || this.isPaused || this.gameOver) return;
+
+        this.ballShadow.x = this.ball.x;
+        this.ballShadow.y = this.ball.y + (this.ball.scale < 1 ? 20 : 10);
+        this.ballShadow.setScale(this.ball.scale);
+        this.ballShadow.setAlpha(this.ball.alpha * 0.3);
+
+        if (this.isFlying) {
+            // Neustále kontrolujeme zásah během celého pohybu
+            this.checkHit();
+
+            // Pokud míček vyletí z obrazovky
+            const outOfBounds = this.ball.y < -50 || this.ball.y > 850 || this.ball.x < -50 || this.ball.x > 500;
+            // Pokud se míček na stole téměř zastaví a je po dopadu (scale je u 1)
+            const stoppedOnTable = this.ball.body.speed < 15 && this.ball.scale > 0.9;
+
+            if (outOfBounds || stoppedOnTable) {
+                this.finishShot();
             }
         }
     }

@@ -1,9 +1,7 @@
 /**
- * HOOF PONG - BOUNCE & VICTORY EDITION
- * - Přímé ovládání (Direct Swipe)
- * - Fyzikální odrazy od kelímků a stěn
- * - Tlačítko MENU s potvrzením
- * - Obrazovka vítězství se statistikami
+ * HOOF PONG - PROGRESSIVE FORMATIONS
+ * - Kelímky se přeskupují: 10 (4-3-2-1) -> 6 (3-2-1) -> 3 (2-1) -> 1 -> KONEC
+ * - Fyzika odrazů zůstává zachována
  */
 const config = {
     type: Phaser.AUTO,
@@ -16,8 +14,7 @@ const config = {
         default: 'arcade', 
         arcade: { 
             gravity: { y: 0 }, 
-            debug: false,
-            checkCollision: { up: true, down: true, left: true, right: true }
+            debug: false
         } 
     }
 };
@@ -65,22 +62,17 @@ class GameScene extends Phaser.Scene {
         }
 
         this.cups = this.physics.add.staticGroup();
-        this.spawnCups(); 
+        this.spawnCups(10); 
 
         this.ball = this.physics.add.sprite(width / 2, height - 110, 'ball').setDepth(20);
-        this.ball.setCollideWorldBounds(true);
-        this.ball.setBounce(0.6); 
-        
+        this.ball.setCollideWorldBounds(true).setBounce(0.6);
         this.ballShadow = this.add.sprite(width / 2, height - 100, 'shadow').setAlpha(0.3).setDepth(4);
         
-        // Kolize míčku s kelímky
         this.physics.add.collider(this.ball, this.cups);
 
-        // UI texty
         this.uiText = this.add.text(20, 20, '', { fontSize: '18px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
         this.statsText = this.add.text(20, 45, 'ÚSPĚŠNOST: 0%', { fontSize: '18px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
         
-        // Tlačítko MENU
         const menuBtn = this.add.rectangle(width - 65, 40, 100, 45, 0x000000, 0.4).setInteractive().setDepth(100).setStrokeStyle(2, 0xffffff);
         this.add.text(width - 65, 40, 'MENU', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(101);
         menuBtn.on('pointerdown', () => this.showExitConfirm());
@@ -88,7 +80,6 @@ class GameScene extends Phaser.Scene {
         this.updateUI();
         this.showRoundIntro();
 
-        // Ovládání
         this.input.on('pointerdown', (p) => {
             if (this.isFlying || this.isPaused || this.gameOver) return;
             this.swipeStart = { x: p.x, y: p.y };
@@ -105,27 +96,24 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    updateTrajectory(p) {
-        const dx = p.x - this.swipeStart.x;
-        const dy = p.y - this.swipeStart.y;
-        const angle = Math.atan2(dy, dx);
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const forceVisual = Math.min(dist, 250);
+    spawnCups(count) {
+        this.cups.clear(true, true);
+        const cx = this.scale.width / 2, sy = 120, gap = 44;
+        let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
         
-        this.dots.forEach((dot, i) => {
-            const step = (i / this.dots.length) * 0.7; 
-            dot.setPosition(this.ball.x + Math.cos(angle) * forceVisual * 4 * step, this.ball.y + Math.sin(angle) * forceVisual * 4 * step);
-            dot.setAlpha(1 - (i / this.dots.length));
+        layout.forEach((rowSize, rIdx) => {
+            for (let i = 0; i < rowSize; i++) {
+                this.cups.create(cx - ((rowSize - 1) * gap / 2) + (i * gap), sy + (rIdx * (gap * 0.85)), 'cup').setCircle(18);
+            }
         });
     }
 
-    handleSwipeEnd(p) {
-        const dx = p.x - this.swipeStart.x;
-        const dy = p.y - this.swipeStart.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        this.dots.forEach(d => d.setAlpha(0));
-        if (dist > 30 && dy < 0) this.shoot(Math.atan2(dy, dx), dist);
-        this.swipeStart = null;
+    updateFormations() {
+        const left = this.cups.countActive();
+        // Pokud zbývá přesně 6, 3 nebo 1 kelímek, přeskládáme je doprostřed
+        if ([6, 3, 1].includes(left)) {
+            this.spawnCups(left);
+        }
     }
 
     shoot(angle, force) {
@@ -133,27 +121,14 @@ class GameScene extends Phaser.Scene {
         this.shotsInRound++;
         this.totalShots++; 
         let speed = Math.min(Math.max(force * 3.5, 300), 1000);
-        
         this.ball.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
         
         this.tweens.add({
-            targets: this.ball,
-            scale: 0.5,
-            duration: 800,
-            yoyo: true,
-            ease: 'Quad.Out',
+            targets: this.ball, scale: 0.5, duration: 800, yoyo: true, ease: 'Quad.Out',
             onUpdate: () => {
-                // Ve vzduchu (malý scale) vypneme kolize
-                if (this.ball.scale < 0.75) {
-                    this.ball.body.checkCollision.none = true;
-                } else {
-                    this.ball.body.checkCollision.none = false;
-                }
+                this.ball.body.checkCollision.none = (this.ball.scale < 0.75);
             },
-            onComplete: () => {
-                this.isFlying = false;
-                this.checkLanding();
-            }
+            onComplete: () => { this.isFlying = false; this.checkLanding(); }
         });
     }
 
@@ -168,6 +143,7 @@ class GameScene extends Phaser.Scene {
                     this.totalHits++;
                     this.popText("HIT!", cup.x, cup.y, '#f1c40f', 40);
                     cup.destroy(); 
+                    this.updateFormations(); // PŘESKLÁDÁNÍ FORMACE
                 }
             });
 
@@ -209,6 +185,25 @@ class GameScene extends Phaser.Scene {
         this.statsText.setText(`ÚSPĚŠNOST: ${acc}%`);
     }
 
+    // Ostatní pomocné funkce (Trajectory, Intro, PopText, ExitConfirm, Victory)
+    updateTrajectory(p) {
+        const dx = p.x - this.swipeStart.x, dy = p.y - this.swipeStart.y;
+        const angle = Math.atan2(dy, dx), dist = Math.min(Math.sqrt(dx*dx + dy*dy), 250);
+        this.dots.forEach((dot, i) => {
+            const step = (i / this.dots.length) * 0.7; 
+            dot.setPosition(this.ball.x + Math.cos(angle) * dist * 4 * step, this.ball.y + Math.sin(angle) * dist * 4 * step);
+            dot.setAlpha(1 - (i / this.dots.length));
+        });
+    }
+
+    handleSwipeEnd(p) {
+        const dx = p.x - this.swipeStart.x, dy = p.y - this.swipeStart.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        this.dots.forEach(d => d.setAlpha(0));
+        if (dist > 30 && dy < 0) this.shoot(Math.atan2(dy, dx), dist);
+        this.swipeStart = null;
+    }
+
     showRoundIntro() {
         const t = this.add.text(this.scale.width/2, this.scale.height/2, `KOLO ${this.currentRound}`, {
             fontSize: '70px', fill: '#fff', fontStyle: '900', stroke: '#000', strokeThickness: 10
@@ -219,18 +214,8 @@ class GameScene extends Phaser.Scene {
     }
 
     popText(txt, x, y, color, size = 32) {
-        const t = this.add.text(x, y, txt, { fontSize: size + 'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5).setDepth(100);
+        const t = this.add.text(x, y, txt, { fontSize: size+'px', fill: color, fontStyle: '900', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5).setDepth(100);
         this.tweens.add({ targets: t, y: y - 100, alpha: 0, duration: 800, onComplete: () => t.destroy() });
-    }
-
-    spawnCups() {
-        const cx = this.scale.width / 2, sy = 120, gap = 44;
-        let layout = [4, 3, 2, 1];
-        layout.forEach((rowSize, rIdx) => {
-            for (let i = 0; i < rowSize; i++) {
-                this.cups.create(cx - ((rowSize - 1) * gap / 2) + (i * gap), sy + (rIdx * (gap * 0.85)), 'cup').setCircle(18);
-            }
-        });
     }
 
     showExitConfirm() {

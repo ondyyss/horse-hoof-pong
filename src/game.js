@@ -1,6 +1,8 @@
 /**
  * HOOF PONG - DIRECT SWIPE CONTROL
- * Směr hodu přesně následuje pohyb prstu po displeji.
+ * Základní kód rozšířen o:
+ * 1. Velký nápis kola na začátku každé úrovně
+ * 2. Ukazatel celkové procentuální úspěšnosti (Accuracy)
  */
 const config = {
     type: Phaser.AUTO,
@@ -44,7 +46,11 @@ class GameScene extends Phaser.Scene {
 
     create() {
         const { width, height } = this.scale;
-        this.currentRound = 1; this.shotsInRound = 0; this.hitsInRound = 0;
+        this.currentRound = 1; 
+        this.shotsInRound = 0; 
+        this.hitsInRound = 0;
+        this.totalShots = 0; // Pro výpočet %
+        this.totalHits = 0;  // Pro výpočet %
         this.isFlying = false;
 
         this.dots = [];
@@ -59,10 +65,13 @@ class GameScene extends Phaser.Scene {
         this.ballShadow = this.add.sprite(width / 2, height - 100, 'shadow').setAlpha(0.3).setDepth(4);
         this.hoof = this.add.sprite(width / 2, height - 70, 'hoof').setDepth(5);
 
-        this.uiText = this.add.text(20, 20, '', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
+        // UI texty
+        this.uiText = this.add.text(20, 20, '', { fontSize: '18px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
+        this.statsText = this.add.text(width - 20, 20, 'ÚSPĚŠNOST: 0%', { fontSize: '18px', fill: '#fff', fontStyle: 'bold' }).setOrigin(1, 0).setDepth(50);
+        
         this.updateUI();
+        this.showRoundIntro(); // Zobrazí nápis kola při startu
 
-        // OVLÁDÁNÍ
         this.input.on('pointerdown', (p) => {
             if (this.isFlying) return;
             this.swipeStart = { x: p.x, y: p.y };
@@ -79,20 +88,42 @@ class GameScene extends Phaser.Scene {
         });
     }
 
+    showRoundIntro() {
+        const { width, height } = this.scale;
+        const introText = this.add.text(width / 2, height / 2, `KOLO ${this.currentRound}`, {
+            fontSize: '70px', fill: '#fff', fontStyle: '900', stroke: '#000', strokeThickness: 10
+        }).setOrigin(0.5).setDepth(200).setScale(0);
+
+        this.tweens.add({
+            targets: introText,
+            scale: 1,
+            ease: 'Back.Out',
+            duration: 600,
+            onComplete: () => {
+                this.time.delayedCall(1000, () => {
+                    this.tweens.add({
+                        targets: introText,
+                        alpha: 0,
+                        y: height / 2 - 150,
+                        duration: 500,
+                        onComplete: () => introText.destroy()
+                    });
+                });
+            }
+        });
+    }
+
     updateTrajectory(p) {
-        // Změna: Teď počítáme směr PŘÍMO (kam jde prst, tam jdou tečky)
         const dx = p.x - this.swipeStart.x;
         const dy = p.y - this.swipeStart.y;
         const angle = Math.atan2(dy, dx);
         const dist = Math.sqrt(dx * dx + dy * dy);
-
         const forceVisual = Math.min(dist, 300);
         
         this.dots.forEach((dot, i) => {
             const step = (i / this.dots.length) * 0.7; 
             const travelX = Math.cos(angle) * forceVisual * 4 * step;
             const travelY = Math.sin(angle) * forceVisual * 4 * step;
-            
             dot.setPosition(this.ball.x + travelX, this.ball.y + travelY);
             dot.setAlpha(1 - (i / this.dots.length));
         });
@@ -103,25 +134,18 @@ class GameScene extends Phaser.Scene {
         const dy = p.y - this.swipeStart.y;
         const angle = Math.atan2(dy, dx);
         const dist = Math.sqrt(dx * dx + dy * dy);
-
         this.dots.forEach(d => d.setAlpha(0));
-
-        // Musí to být swipe směrem "nahoru" (dy záporné)
-        if (dist > 30 && dy < 0) {
-            this.shoot(angle, dist);
-        }
+        if (dist > 30 && dy < 0) this.shoot(angle, dist);
         this.swipeStart = null;
     }
 
     shoot(angle, force) {
         this.isFlying = true;
         this.shotsInRound++;
+        this.totalShots++; 
 
-        // Síla je nastavena tak, aby delší swipe znamenal delší dolet
         let speed = Math.min(Math.max(force * 3.5, 300), 1000);
-
         this.ball.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
-
         this.tweens.add({
             targets: this.ball, scale: 0.4, duration: 750, yoyo: true, ease: 'Quad.Out',
             onComplete: () => { this.isFlying = false; this.checkLanding(); }
@@ -144,16 +168,19 @@ class GameScene extends Phaser.Scene {
         let hitFound = false;
         this.cups.children.entries.forEach(cup => {
             if (Phaser.Math.Distance.Between(this.ball.x, this.ball.y, cup.x, cup.y) < 28 && !hitFound) {
-                hitFound = true; this.hitsInRound++;
+                hitFound = true; 
+                this.hitsInRound++;
+                this.totalHits++;
                 this.popText("HIT!", cup.x, cup.y, '#f1c40f', 40);
-                cup.destroy(); this.updateFormations();
+                cup.destroy(); 
+                this.updateFormations();
             }
         });
-
         if (!hitFound) {
             this.popText('MISS', this.scale.width / 2, this.scale.height / 2, '#e74c3c', 70);
             this.tweens.add({ targets: this.ball, y: this.ball.y + 40, alpha: 0, duration: 400 });
         }
+        this.updateUI();
         this.time.delayedCall(900, () => this.processTurn());
     }
 
@@ -165,9 +192,13 @@ class GameScene extends Phaser.Scene {
     processTurn() {
         let hasTriple = (this.hitsInRound === 2 && this.shotsInRound === 2);
         if (this.shotsInRound >= 3 || (this.shotsInRound === 2 && !hasTriple)) {
-            this.currentRound++; this.shotsInRound = 0; this.hitsInRound = 0;
+            this.currentRound++; 
+            this.shotsInRound = 0; 
+            this.hitsInRound = 0;
+            this.showRoundIntro(); 
         }
-        this.updateUI(); this.resetBall();
+        this.updateUI(); 
+        this.resetBall();
     }
 
     resetBall() {
@@ -178,6 +209,9 @@ class GameScene extends Phaser.Scene {
     updateUI() {
         let max = (this.hitsInRound === 2 && this.shotsInRound >= 2) ? 3 : 2;
         this.uiText.setText(`KOLO: ${this.currentRound} | HOD: ${this.shotsInRound + 1}/${max}`);
+        
+        let acc = (this.totalShots === 0) ? 0 : Math.round((this.totalHits / this.totalShots) * 100);
+        this.statsText.setText(`ÚSPĚŠNOST: ${acc}%`);
     }
 
     spawnCups(count) {

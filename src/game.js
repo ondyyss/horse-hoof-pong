@@ -1,8 +1,6 @@
 /**
- * HOOF PONG - FIREBALL & COMBO EDITION
- * - Fireball se aktivuje až při Combu 2+.
- * - Bonusový hod po 2 zásazích v kole.
- * - Částicové efekty ohně.
+ * HOOF PONG - FIRE EDITION (Final Arcade Build)
+ * Kompletní kód se všemi mechanikami.
  */
 const config = {
     type: Phaser.AUTO,
@@ -24,8 +22,10 @@ class MenuScene extends Phaser.Scene {
         this.add.text(width / 2, 150, 'HOOF PONG\nFIRE EDITION', { 
             fontSize: '50px', fill: '#fff', align: 'center', fontStyle: '900', stroke: '#000', strokeThickness: 8 
         }).setOrigin(0.5);
+        
         const playBtn = this.add.rectangle(width / 2, height / 2, 220, 70, 0x27ae60).setInteractive();
         this.add.text(width / 2, height / 2, 'START', { fontSize: '32px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+        
         playBtn.on('pointerdown', () => this.scene.start('GameScene'));
     }
 }
@@ -35,10 +35,10 @@ class GameScene extends Phaser.Scene {
 
     preload() {
         let g = this.make.graphics({ x: 0, y: 0, add: false });
-        // Míčky
+        // Textury míčků
         g.fillStyle(0xffffff); g.fillCircle(12, 12, 12); g.generateTexture('ball', 24, 24);
         g.clear(); g.fillStyle(0xff4400); g.fillCircle(12, 12, 12); g.fillStyle(0xffcc00); g.fillCircle(12, 12, 8); g.generateTexture('fireball', 24, 24);
-        // Ostatní
+        // Ostatní grafika
         g.clear(); g.fillStyle(0x000000, 0.3); g.fillCircle(12, 12, 12); g.generateTexture('shadow', 24, 24);
         g.clear(); g.fillStyle(0xc0392b); g.fillCircle(20, 20, 20); g.fillStyle(0xe74c3c); g.fillCircle(20, 20, 17); g.generateTexture('cup', 40, 40);
         g.clear(); g.fillStyle(0xffffff, 0.6); g.fillCircle(4, 4, 4); g.generateTexture('dot', 8, 8);
@@ -47,17 +47,23 @@ class GameScene extends Phaser.Scene {
 
     create() {
         const { width, height } = this.scale;
+        
+        // Herní stav
         this.currentRound = 1; 
         this.shotsInRound = 0; 
         this.hitsInRound = 0; 
         this.comboCount = 0; 
+        this.totalShots = 0;
+        this.totalHits = 0;
         this.isFlying = false;
         this.hitRegistered = false;
+        this.gameOver = false;
 
+        // Pomocné prvky
         this.dots = [];
         for (let i = 0; i < 12; i++) this.dots.push(this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10));
 
-        // Částice pro oheň
+        // Částice ohně
         this.emitter = this.add.particles(0, 0, 'particle', {
             speed: { min: 20, max: 100 },
             angle: { min: 0, max: 360 },
@@ -67,6 +73,7 @@ class GameScene extends Phaser.Scene {
             emitting: false
         }).setDepth(19);
 
+        // Objekty
         this.cups = this.physics.add.staticGroup();
         this.spawnCups(10); 
 
@@ -76,13 +83,16 @@ class GameScene extends Phaser.Scene {
         
         this.physics.add.collider(this.ball, this.cups);
 
+        // UI
         this.uiText = this.add.text(20, 20, '', { fontSize: '18px', fill: '#fff', fontStyle: 'bold' }).setDepth(50);
+        this.statsText = this.add.text(20, 45, '', { fontSize: '16px', fill: '#f1c40f', fontStyle: 'bold' }).setDepth(50);
         this.comboText = this.add.text(width/2, 250, '', { fontSize: '48px', fill: '#f1c40f', fontStyle: '900', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5).setDepth(100).setAlpha(0);
         
         this.updateUI();
         this.showRoundIntro();
 
-        this.input.on('pointerdown', p => { if(!this.isFlying) this.swipeStart = { x: p.x, y: p.y }; });
+        // Ovládání
+        this.input.on('pointerdown', p => { if(!this.isFlying && !this.gameOver) this.swipeStart = { x: p.x, y: p.y }; });
         this.input.on('pointermove', p => { if(this.swipeStart) this.updateTrajectory(p); });
         this.input.on('pointerup', p => { if(this.swipeStart) this.handleSwipeEnd(p); });
     }
@@ -120,8 +130,9 @@ class GameScene extends Phaser.Scene {
         this.isFlying = true;
         this.hitRegistered = false;
         this.shotsInRound++;
+        this.totalShots++;
         
-        // Fireball se aktivuje až při Combu 2 a více
+        // Aktivace Fireballu při Combu 2+
         if (this.comboCount >= 2) {
             this.ball.setTexture('fireball');
             this.emitter.start();
@@ -133,6 +144,7 @@ class GameScene extends Phaser.Scene {
         let speed = Math.min(Math.max(force * 3.8, 400), 1100);
         this.ball.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
         
+        // Animace letu (parabola)
         this.tweens.add({
             targets: this.ball, scale: 1.3, duration: 200, ease: 'Quad.Out',
             onComplete: () => {
@@ -157,6 +169,7 @@ class GameScene extends Phaser.Scene {
         this.hitRegistered = true;
         this.isFlying = false;
         this.hitsInRound++;
+        this.totalHits++;
         this.comboCount++;
         this.emitter.stop();
 
@@ -197,8 +210,10 @@ class GameScene extends Phaser.Scene {
     nextStep() {
         if (this.cups.countActive() === 0) { this.showVictory(); return; }
 
-        let maxShots = (this.hitsInRound === 2) ? 3 : 2;
-        if (this.shotsInRound >= maxShots) {
+        // Logika 2 hodů + bonusový při 2 trefách
+        let maxShotsInRound = (this.hitsInRound === 2) ? 3 : 2;
+
+        if (this.shotsInRound >= maxShotsInRound) {
             this.currentRound++;
             this.shotsInRound = 0;
             this.hitsInRound = 0;
@@ -217,8 +232,11 @@ class GameScene extends Phaser.Scene {
     }
 
     updateUI() {
-        let max = (this.hitsInRound === 2 && this.shotsInRound >= 2) ? 3 : 2;
-        this.uiText.setText(`KOLO: ${this.currentRound} | HOD: ${this.shotsInRound}/${max}\nCOMBO: ${this.comboCount}`);
+        let max = (this.hitsInRound === 2 || this.shotsInRound > 2) ? 3 : 2;
+        this.uiText.setText(`KOLO: ${this.currentRound} | HOD: ${this.shotsInRound}/${max}`);
+        
+        let success = (this.totalShots === 0) ? 0 : Math.round((this.totalHits / this.totalShots) * 100);
+        this.statsText.setText(`ÚSPĚŠNOST: ${success}% | COMBO: ${this.comboCount}`);
     }
 
     showRoundIntro() {
@@ -239,6 +257,7 @@ class GameScene extends Phaser.Scene {
     }
 
     showVictory() {
+        this.gameOver = true;
         this.add.rectangle(225, 400, 450, 800, 0x000000, 0.8).setDepth(1000);
         this.add.text(225, 400, 'VYČIŠTĚNO!', { fontSize: '60px', fill: '#f1c40f', fontStyle: '900' }).setOrigin(0.5).setDepth(1001);
         const btn = this.add.rectangle(225, 550, 200, 60, 0x27ae60).setInteractive().setDepth(1001);
@@ -248,18 +267,23 @@ class GameScene extends Phaser.Scene {
 
     update() {
         if (!this.ball || this.gameOver) return;
+        
+        // Stín
         this.ballShadow.x = this.ball.x;
         this.ballShadow.y = this.ball.y + (this.ball.scale < 1 ? 25 : 10);
         this.ballShadow.setScale(this.ball.scale * 0.8);
+        this.ballShadow.setAlpha(this.ball.alpha * 0.3);
         
-        // Sledování částic za míčkem
+        // Pozice částic pro Fireball
         if (this.isFlying && this.comboCount >= 2) {
             this.emitter.setPosition(this.ball.x, this.ball.y);
         }
 
         if (this.isFlying) {
             this.checkHit();
-            if (this.ball.y < -50 || this.ball.y > 850 || (this.ball.body.speed < 20 && this.ball.scale > 0.9)) this.finishShot();
+            if (this.ball.y < -50 || this.ball.y > 850 || (this.ball.body.speed < 20 && this.ball.scale > 0.9)) {
+                this.finishShot();
+            }
         }
     }
 }

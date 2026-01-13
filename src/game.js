@@ -1,6 +1,6 @@
 /**
  * HOOF PONG - FIRE EDITION (Final Arcade Build)
- * Kompletní kód se všemi mechanikami.
+ * Kompletní kód s animacemi, statistikami a navigací.
  */
 const config = {
     type: Phaser.AUTO,
@@ -17,16 +17,34 @@ const config = {
 
 class MenuScene extends Phaser.Scene {
     constructor() { super('MenuScene'); }
+    
     create() {
         const { width, height } = this.scale;
+        
+        // Titulek
         this.add.text(width / 2, 150, 'HOOF PONG\nFIRE EDITION', { 
             fontSize: '50px', fill: '#fff', align: 'center', fontStyle: '900', stroke: '#000', strokeThickness: 8 
         }).setOrigin(0.5);
         
-        const playBtn = this.add.rectangle(width / 2, height / 2, 220, 70, 0x27ae60).setInteractive();
-        this.add.text(width / 2, height / 2, 'START', { fontSize: '32px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-        
+        // Tlačítko START
+        const playBtn = this.add.rectangle(width / 2, height / 2 - 20, 220, 70, 0x27ae60).setInteractive();
+        this.add.text(width / 2, height / 2 - 20, 'START', { fontSize: '32px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
         playBtn.on('pointerdown', () => this.scene.start('GameScene'));
+        
+        // Efekt při najetí na tlačítko
+        playBtn.on('pointerover', () => playBtn.setFillStyle(0x2ecc71));
+        playBtn.on('pointerout', () => playBtn.setFillStyle(0x27ae60));
+
+        // Statistiky z LocalStorage
+        const stats = JSON.parse(localStorage.getItem('hoofPongStats') || '{"games":0, "totalHits":0}');
+        
+        const statsBox = this.add.graphics();
+        statsBox.fillStyle(0x000000, 0.4);
+        statsBox.fillRoundedRect(width / 2 - 150, height / 2 + 100, 300, 130, 15);
+        
+        this.add.text(width / 2, height / 2 + 125, 'CELKOVÉ STATISTIKY', { fontSize: '20px', fill: '#f1c40f', fontStyle: 'bold' }).setOrigin(0.5);
+        this.add.text(width / 2, height / 2 + 160, `Odehrané hry: ${stats.games}`, { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
+        this.add.text(width / 2, height / 2 + 190, `Zásahy celkem: ${stats.totalHits}`, { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
     }
 }
 
@@ -59,7 +77,7 @@ class GameScene extends Phaser.Scene {
         this.hitRegistered = false;
         this.gameOver = false;
 
-        // Pomocné prvky
+        // Pomocné prvky (trajektorie)
         this.dots = [];
         for (let i = 0; i < 12; i++) this.dots.push(this.add.image(0, 0, 'dot').setAlpha(0).setDepth(10));
 
@@ -98,12 +116,41 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCups(count) {
-        this.cups.clear(true, true);
         const cx = this.scale.width / 2, sy = 120, gap = 48;
         let layout = count === 10 ? [4, 3, 2, 1] : (count === 6 ? [3, 2, 1] : (count === 3 ? [2, 1] : [1]));
+        
+        let targetPositions = [];
         layout.forEach((rowSize, rIdx) => {
             for (let i = 0; i < rowSize; i++) {
-                this.cups.create(cx - ((rowSize - 1) * gap / 2) + (i * gap), sy + (rIdx * (gap * 0.85)), 'cup').setCircle(16);
+                targetPositions.push({
+                    x: cx - ((rowSize - 1) * gap / 2) + (i * gap),
+                    y: sy + (rIdx * (gap * 0.85))
+                });
+            }
+        });
+
+        const existingCups = this.cups.getChildren();
+        
+        // Animované přesouvání nebo vytvoření
+        targetPositions.forEach((pos, index) => {
+            if (existingCups[index]) {
+                this.tweens.add({
+                    targets: existingCups[index],
+                    x: pos.x,
+                    y: pos.y,
+                    duration: 600,
+                    ease: 'Back.Out',
+                    delay: index * 40
+                });
+            } else {
+                const c = this.cups.create(pos.x, -50, 'cup').setCircle(16);
+                this.tweens.add({
+                    targets: c,
+                    y: pos.y,
+                    duration: 800,
+                    ease: 'Bounce.Out',
+                    delay: index * 60
+                });
             }
         });
     }
@@ -132,7 +179,6 @@ class GameScene extends Phaser.Scene {
         this.shotsInRound++;
         this.totalShots++;
         
-        // Aktivace Fireballu při Combu 2+
         if (this.comboCount >= 2) {
             this.ball.setTexture('fireball');
             this.emitter.start();
@@ -144,13 +190,12 @@ class GameScene extends Phaser.Scene {
         let speed = Math.min(Math.max(force * 3.8, 400), 1100);
         this.ball.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
         
-        // Animace letu (parabola)
         this.tweens.add({
             targets: this.ball, scale: 1.3, duration: 200, ease: 'Quad.Out',
             onComplete: () => {
                 this.tweens.add({
                     targets: this.ball, scale: 0.6, duration: 600, yoyo: true, ease: 'Sine.InOut',
-                    onUpdate: () => { this.ball.body.checkCollision.none = (this.ball.scale < 0.75); }
+                    onUpdate: () => { if(this.ball.body) this.ball.body.checkCollision.none = (this.ball.scale < 0.75); }
                 });
             }
         });
@@ -210,7 +255,6 @@ class GameScene extends Phaser.Scene {
     nextStep() {
         if (this.cups.countActive() === 0) { this.showVictory(); return; }
 
-        // Logika 2 hodů + bonusový při 2 trefách
         let maxShotsInRound = (this.hitsInRound === 2) ? 3 : 2;
 
         if (this.shotsInRound >= maxShotsInRound) {
@@ -227,7 +271,7 @@ class GameScene extends Phaser.Scene {
 
     resetBall() {
         this.ball.setPosition(225, 690).setVelocity(0).setScale(1).setAlpha(1).setTexture('ball');
-        this.ball.body.checkCollision.none = false;
+        if(this.ball.body) this.ball.body.checkCollision.none = false;
         this.isFlying = false;
     }
 
@@ -256,32 +300,51 @@ class GameScene extends Phaser.Scene {
         if ([6, 3, 1].includes(left)) this.spawnCups(left);
     }
 
+    saveStats() {
+        let stats = JSON.parse(localStorage.getItem('hoofPongStats') || '{"games":0, "totalHits":0}');
+        stats.games += 1;
+        stats.totalHits += this.totalHits;
+        localStorage.setItem('hoofPongStats', JSON.stringify(stats));
+    }
+
     showVictory() {
         this.gameOver = true;
-        this.add.rectangle(225, 400, 450, 800, 0x000000, 0.8).setDepth(1000);
-        this.add.text(225, 400, 'VYČIŠTĚNO!', { fontSize: '60px', fill: '#f1c40f', fontStyle: '900' }).setOrigin(0.5).setDepth(1001);
-        const btn = this.add.rectangle(225, 550, 200, 60, 0x27ae60).setInteractive().setDepth(1001);
-        this.add.text(225, 550, 'RESTART', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5).setDepth(1002);
-        btn.on('pointerdown', () => this.scene.restart());
+        this.saveStats();
+        
+        // Ztmavení pozadí
+        this.add.rectangle(225, 400, 450, 800, 0x000000, 0.85).setDepth(1000);
+        
+        // Hlavní nápis
+        this.add.text(225, 350, 'VÝHRA!', { 
+            fontSize: '80px', fill: '#f1c40f', fontStyle: '900', stroke: '#000', strokeThickness: 10 
+        }).setOrigin(0.5).setDepth(1001);
+
+        // Tlačítko HRÁT ZNOVU
+        const btnRestart = this.add.rectangle(225, 500, 250, 60, 0x27ae60).setInteractive().setDepth(1001);
+        this.add.text(225, 500, 'HRÁT ZNOVU', { fontSize: '24px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(1002);
+        btnRestart.on('pointerdown', () => this.scene.restart());
+
+        // Tlačítko ZPĚT DO MENU
+        const btnMenu = this.add.rectangle(225, 580, 250, 60, 0x2980b9).setInteractive().setDepth(1001);
+        this.add.text(225, 580, 'ZPĚT DO MENU', { fontSize: '24px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(1002);
+        btnMenu.on('pointerdown', () => this.scene.start('MenuScene'));
     }
 
     update() {
         if (!this.ball || this.gameOver) return;
         
-        // Stín
         this.ballShadow.x = this.ball.x;
         this.ballShadow.y = this.ball.y + (this.ball.scale < 1 ? 25 : 10);
         this.ballShadow.setScale(this.ball.scale * 0.8);
         this.ballShadow.setAlpha(this.ball.alpha * 0.3);
         
-        // Pozice částic pro Fireball
         if (this.isFlying && this.comboCount >= 2) {
             this.emitter.setPosition(this.ball.x, this.ball.y);
         }
 
         if (this.isFlying) {
             this.checkHit();
-            if (this.ball.y < -50 || this.ball.y > 850 || (this.ball.body.speed < 20 && this.ball.scale > 0.9)) {
+            if (this.ball.y < -50 || this.ball.y > 850 || (this.ball.body && this.ball.body.speed < 20 && this.ball.scale > 0.9)) {
                 this.finishShot();
             }
         }
